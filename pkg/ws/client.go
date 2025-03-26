@@ -47,6 +47,8 @@ func NewOptions() Options {
 // Client is a middleman between the websocket connection and the [Relay].
 // Each client can have multiple [Subscription]s.
 type Client struct {
+	Relay *Relay
+
 	Conn *websocket.Conn
 	Send chan []byte
 	Subs []Subscription
@@ -61,7 +63,7 @@ func NewClientWithOptions(conn *websocket.Conn, opt Options) *Client {
 	return &Client{
 		Conn:    conn,
 		Send:    make(chan []byte, 256),
-		Subs:    make([]Subscription, 5),
+		Subs:    make([]Subscription, 0, 5),
 		Options: opt,
 	}
 }
@@ -76,8 +78,3 @@ func (c *Client) CloseSubscription(ID string) {
 		}
 	}
 }
-
-// var upgrader = websocket.Upgrader{
-// 	ReadBufferSize:  1024,
-// 	WriteBufferSize: 1024,
-// }
