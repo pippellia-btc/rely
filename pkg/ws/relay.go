@@ -7,11 +7,11 @@ import (
 )
 
 const (
-	DefaultWriteWait                 = 10 * time.Second
-	DefaultPongWait                  = 60 * time.Second
-	DefaultPingPeriod                = 45 * time.Second
-	DefaultMaxMessageSize            = 512000
-	DefaultMaxSubscriptionsPerClient = 50
+	DefaultWriteWait                 time.Duration = 10 * time.Second
+	DefaultPongWait                  time.Duration = 60 * time.Second
+	DefaultPingPeriod                time.Duration = 45 * time.Second
+	DefaultMaxMessageSize            int64         = 512000
+	DefaultMaxSubscriptionsPerClient int           = 50
 )
 
 var upgrader = websocket.Upgrader{
@@ -34,7 +34,7 @@ type ClientLimits struct {
 	WriteWait      time.Duration
 	PongWait       time.Duration
 	PingPeriod     time.Duration
-	MaxMessageSize int
+	MaxMessageSize int64
 
 	// client options
 	MaxSubscriptionsPerClient int
