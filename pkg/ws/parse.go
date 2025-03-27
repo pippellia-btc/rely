@@ -61,7 +61,7 @@ func Parse(data []byte) (Request, error) {
 	switch label {
 	case "EVENT":
 		var event nostr.Event
-		if err := json.Unmarshal([]byte(arr[1]), &event); err != nil {
+		if err := json.Unmarshal(arr[1], &event); err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
 		}
 		return EventRequest{Event: event}, nil
