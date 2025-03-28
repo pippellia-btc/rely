@@ -10,14 +10,6 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-type NoticeResponse struct {
-	Message string
-}
-
-func (n NoticeResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]string{"NOTICE", n.Message})
-}
-
 type Subscription struct {
 	ID      string
 	cancel  context.CancelFunc // calling it cancels the context of the associated REQ
@@ -52,6 +44,23 @@ func (c *Client) CloseSubscription(ID string) {
 			return
 		}
 	}
+}
+
+type NoticeResponse struct {
+	Message string
+}
+
+func (n NoticeResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]string{"NOTICE", n.Message})
+}
+
+type ClosedResponse struct {
+	ID     string
+	Reason string
+}
+
+func (c ClosedResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]string{"CLOSED", c.ID, c.Reason})
 }
 
 func (c *Client) Read() {
@@ -110,6 +119,37 @@ func (c *Client) Read() {
 
 		default:
 			c.Conn.WriteJSON(NoticeResponse{Message: ErrUnsupportedType.Error()})
+		}
+	}
+}
+
+func (c *Client) Write() {
+	ticker := time.NewTicker(c.Relay.PingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.Conn.Close()
+	}()
+
+	for {
+		select {
+		case response, ok := <-c.Send:
+			if !ok {
+				// the relay has closed the channel, which should only happen after the relay has sent a [ClosedResponse].
+				return
+			}
+
+			c.Conn.SetWriteDeadline(time.Now().Add(c.Relay.WriteWait))
+			if err := c.Conn.WriteJSON(response); err != nil {
+				log.Printf("error when attempting to write: %v", err)
+				return
+			}
+
+		case <-ticker.C:
+			c.Conn.SetWriteDeadline(time.Now().Add(c.Relay.WriteWait))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("ping failed: %v", err)
+				return
+			}
 		}
 	}
 }
