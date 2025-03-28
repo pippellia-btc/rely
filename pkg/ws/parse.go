@@ -11,90 +11,103 @@ import (
 
 var (
 	ErrGeneric               = errors.New("the request must be a JSON array with a length greater than two")
-	ErrUnsupportedType       = errors.New("the request type must be one between 'EVENT', 'REQ' and 'CLOSE'")
+	ErrInvalidEventRequest   = errors.New(`an EVENT request must follow this format: ["EVENT", <event JSON>]`)
+	ErrInvalidReqRequest     = errors.New(`a REQ request must follow this format: ["REQ", <subscription_id>, <filter1>, <filter2>, ...]`)
+	ErrInvalidEventID        = errors.New("invalid event ID")
 	ErrInvalidSubscriptionID = errors.New("invalid subscription ID")
-	ErrInvalidEvent          = errors.New(`an EVENT request must follow this format: ["EVENT", <event JSON>]`)
-	ErrInvalidReq            = errors.New(`a REQ request must follow this format: ["REQ", <subscription_id>, <filter1>, <filter2>, ...]`)
+	ErrInvalidEventSignature = errors.New("invalid event signature")
+
+	ErrUnsupportedType = errors.New("the request type must be one between 'EVENT', 'REQ' and 'CLOSE'")
 )
 
-type Request interface {
-	Label() string
+type request struct {
+	Label string
+	array []json.RawMessage
 }
 
 type EventRequest struct {
-	ctx context.Context
-	nostr.Event
+	ctx   context.Context
+	Event nostr.Event
 }
-
-func (e EventRequest) Label() string { return "EVENT" }
 
 type ReqRequest struct {
-	ctx context.Context
 	ID  string // the subscription ID
+	ctx context.Context
 	nostr.Filters
 }
-
-func (r ReqRequest) Label() string { return "REQ" }
 
 type CloseRequest struct {
 	ID string // the subscription ID
 }
 
-func (c CloseRequest) Label() string { return "CLOSE" }
-
-// Parse decodes the JSON array message from the websocket connection into the appropriate [Request] type.
-func Parse(data []byte) (Request, error) {
+// Parse decodes the JSON array message from the websocket connection into a [request],
+// performing minimal checks and extracting the label.
+// The request must then be converted using the appropriate To<type's name> method e.g. [ToEventRequest].
+func Parse(data []byte) (request, error) {
 	var arr []json.RawMessage
 	if err := json.Unmarshal(data, &arr); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrGeneric, err)
+		return request{}, fmt.Errorf("%w: %w", ErrGeneric, err)
 	}
 
 	if len(arr) < 2 {
-		return nil, ErrGeneric
+		return request{}, ErrGeneric
 	}
 
 	var label string
 	if err := json.Unmarshal(arr[0], &label); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrGeneric, err)
+		return request{}, fmt.Errorf("%w: %w", ErrGeneric, err)
 	}
 
-	switch label {
-	case "EVENT":
-		var event nostr.Event
-		if err := json.Unmarshal(arr[1], &event); err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrInvalidEvent, err)
-		}
-		return EventRequest{Event: event}, nil
+	return request{Label: label, array: arr[1:]}, nil
+}
 
-	case "CLOSE":
-		ID, err := parseID(arr[1])
-		if err != nil {
-			return nil, err
-		}
-		return CloseRequest{ID: ID}, nil
-
-	case "REQ":
-		if len(arr) < 3 {
-			return nil, ErrInvalidReq
-		}
-
-		ID, err := parseID(arr[1])
-		if err != nil {
-			return nil, err
-		}
-
-		filters := make(nostr.Filters, len(arr)-2)
-		for i, filter := range arr[2:] {
-			if err := json.Unmarshal(filter, &filters[i]); err != nil {
-				return nil, fmt.Errorf("%w: failed to decode filter at index %d: %s", ErrInvalidReq, i, err)
-			}
-		}
-
-		return ReqRequest{ID: ID, Filters: filters}, nil
-
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedType, label)
+func (r request) ToEventRequest() (*EventRequest, error) {
+	var event nostr.Event
+	if err := json.Unmarshal(r.array[0], &event); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidEventRequest, err)
 	}
+
+	if !event.CheckID() {
+		return nil, ErrInvalidEventID
+	}
+
+	match, err := event.CheckSignature()
+	if !match {
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidEventSignature, err.Error())
+		}
+		return nil, ErrInvalidEventSignature
+	}
+
+	return &EventRequest{Event: event}, nil
+}
+
+func (r request) ToReqRequest() (*ReqRequest, error) {
+	if len(r.array) < 2 {
+		return nil, ErrInvalidReqRequest
+	}
+
+	ID, err := parseID(r.array[0])
+	if err != nil {
+		return nil, err
+	}
+
+	filters := make(nostr.Filters, len(r.array)-1)
+	for i, filter := range r.array[1:] {
+		if err := json.Unmarshal(filter, &filters[i]); err != nil {
+			return nil, fmt.Errorf("%w: failed to decode filter at index %d: %s", ErrInvalidReqRequest, i, err)
+		}
+	}
+
+	return &ReqRequest{ID: ID, Filters: filters}, nil
+}
+
+func (r request) ToCloseRequest() (*CloseRequest, error) {
+	ID, err := parseID(r.array[0])
+	if err != nil {
+		return nil, err
+	}
+	return &CloseRequest{ID: ID}, nil
 }
 
 func parseID(data json.RawMessage) (string, error) {

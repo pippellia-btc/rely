@@ -20,7 +20,8 @@ var upgrader = websocket.Upgrader{
 }
 
 type Relay struct {
-	Queue chan []byte
+	EventQueue chan *EventRequest
+	ReqQueue   chan *ReqRequest
 
 	Clients    map[*Client]bool
 	Register   chan *Client
@@ -56,7 +57,8 @@ func NewRelay() *Relay {
 
 func NewRelayWithOptions(limits ClientLimits) *Relay {
 	return &Relay{
-		Queue:        make(chan []byte, 10000),
+		EventQueue:   make(chan *EventRequest, 1000),
+		ReqQueue:     make(chan *ReqRequest, 1000),
 		Clients:      make(map[*Client]bool, 100),
 		Register:     make(chan *Client, 10),
 		Unregister:   make(chan *Client, 10),
