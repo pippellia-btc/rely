@@ -10,14 +10,15 @@ import (
 )
 
 var (
-	ErrGeneric               = errors.New("the request must be a JSON array with a length greater than two")
+	ErrGeneric         = errors.New("the request must be a JSON array with a length greater than two")
+	ErrUnsupportedType = errors.New("the request type must be one between 'EVENT', 'REQ' and 'CLOSE'")
+
 	ErrInvalidEventRequest   = errors.New(`an EVENT request must follow this format: ["EVENT", <event JSON>]`)
-	ErrInvalidReqRequest     = errors.New(`a REQ request must follow this format: ["REQ", <subscription_id>, <filter1>, <filter2>, ...]`)
 	ErrInvalidEventID        = errors.New("invalid event ID")
-	ErrInvalidSubscriptionID = errors.New("invalid subscription ID")
 	ErrInvalidEventSignature = errors.New("invalid event signature")
 
-	ErrUnsupportedType = errors.New("the request type must be one between 'EVENT', 'REQ' and 'CLOSE'")
+	ErrInvalidReqRequest     = errors.New(`a REQ request must follow this format: ["REQ", <subscription_id>, <filter1>, <filter2>, ...]`)
+	ErrInvalidSubscriptionID = errors.New("invalid subscription ID")
 )
 
 type request struct {
@@ -40,9 +41,8 @@ type CloseRequest struct {
 	ID string // the subscription ID
 }
 
-// Parse decodes the JSON array message from the websocket connection into a [request],
-// performing minimal checks and extracting the label.
-// The request must then be converted using the appropriate To<type's name> method e.g. [ToEventRequest].
+// Parse decodes the JSON array message from the websocket connection into a [request].
+// The request must then be converted using the appropriate To<type's name> method e.g. [request.ToEventRequest].
 func Parse(data []byte) (request, error) {
 	var arr []json.RawMessage
 	if err := json.Unmarshal(data, &arr); err != nil {
@@ -61,6 +61,7 @@ func Parse(data []byte) (request, error) {
 	return request{Label: label, array: arr[1:]}, nil
 }
 
+// ToEventRequest converts the request into an [EventRequest], validating the ID and signature of the event.
 func (r request) ToEventRequest() (*EventRequest, error) {
 	var event nostr.Event
 	if err := json.Unmarshal(r.array[0], &event); err != nil {
@@ -82,6 +83,7 @@ func (r request) ToEventRequest() (*EventRequest, error) {
 	return &EventRequest{Event: event}, nil
 }
 
+// ToReqRequest converts the request into an [ReqRequest], validating the subscription ID.
 func (r request) ToReqRequest() (*ReqRequest, error) {
 	if len(r.array) < 2 {
 		return nil, ErrInvalidReqRequest
@@ -102,6 +104,7 @@ func (r request) ToReqRequest() (*ReqRequest, error) {
 	return &ReqRequest{ID: ID, Filters: filters}, nil
 }
 
+// ToCloseRequest converts the request into an [CloseRequest], validating the subscription ID.
 func (r request) ToCloseRequest() (*CloseRequest, error) {
 	ID, err := parseID(r.array[0])
 	if err != nil {
