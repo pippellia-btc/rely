@@ -51,22 +51,22 @@ func TestParseToEventRequest(t *testing.T) {
 		name     string
 		data     []byte
 		expected *EventRequest
-		err      error
+		err      *RequestError
 	}{
 		{
 			name: "invalid",
 			data: []byte(`["EVENT", "sdada"]`),
-			err:  ErrInvalidEventRequest,
+			err:  &RequestError{Err: ErrInvalidEventRequest},
 		},
 		{
 			name: "invalid ID",
 			data: []byte(`["EVENT", {"id":"whatever"}]`),
-			err:  ErrInvalidEventID,
+			err:  &RequestError{ID: "whatever", Err: ErrInvalidEventID},
 		},
 		{
 			name: "invalid signature",
 			data: []byte(`["EVENT", {"kind":1,"id":"dc90c95f09947507c1044e8f48bcf6350aa6bff1507dd4acfc755b9239b5c962","pubkey":"3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d","created_at":1644271588,"tags":[],"content":"now that https://blueskyweb.org/blog/2-7-2022-overview was announced we can stop working on nostr?","sig":"whatever"}]`),
-			err:  ErrInvalidEventSignature,
+			err:  &RequestError{ID: "dc90c95f09947507c1044e8f48bcf6350aa6bff1507dd4acfc755b9239b5c962", Err: ErrInvalidEventSignature},
 		},
 		{
 			name:     "valid kind 1",
@@ -104,27 +104,27 @@ func TestParseToReqRequest(t *testing.T) {
 		name     string
 		data     []byte
 		expected *ReqRequest
-		err      error
+		err      *RequestError
 	}{
-		{
-			name: "incorrect lenght",
-			data: []byte(`["REQ", "abc"]`),
-			err:  ErrInvalidReqRequest,
-		},
 		{
 			name: "ID not a string",
 			data: []byte(`["REQ", 111, {"kinds": [1]}]`),
-			err:  ErrInvalidSubscriptionID,
+			err:  &RequestError{Err: ErrInvalidSubscriptionID},
+		},
+		{
+			name: "incorrect lenght",
+			data: []byte(`["REQ", "abc"]`),
+			err:  &RequestError{ID: "abc", Err: ErrInvalidReqRequest},
 		},
 		{
 			name: "empty ID",
 			data: []byte(`["REQ", "", {"kinds": [1]}]`),
-			err:  ErrInvalidSubscriptionID,
+			err:  &RequestError{ID: "", Err: ErrInvalidSubscriptionID},
 		},
 		{
 			name: "ID is too long",
 			data: []byte(`["REQ", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {"kinds": [1]}]`),
-			err:  ErrInvalidSubscriptionID,
+			err:  &RequestError{ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Err: ErrInvalidSubscriptionID},
 		},
 		{
 			name:     "valid",
@@ -157,22 +157,22 @@ func TestParseToCloseRequest(t *testing.T) {
 		name     string
 		data     []byte
 		expected *CloseRequest
-		err      error
+		err      *RequestError
 	}{
 		{
 			name: "ID not a string",
 			data: []byte(`["CLOSE", 111]`),
-			err:  ErrInvalidSubscriptionID,
+			err:  &RequestError{Err: ErrInvalidSubscriptionID},
 		},
 		{
 			name: "empty ID",
 			data: []byte(`["CLOSE", ""]`),
-			err:  ErrInvalidSubscriptionID,
+			err:  &RequestError{ID: "", Err: ErrInvalidSubscriptionID},
 		},
 		{
 			name: "ID is too long",
 			data: []byte(`["CLOSE", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]`),
-			err:  ErrInvalidSubscriptionID,
+			err:  &RequestError{ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Err: ErrInvalidSubscriptionID},
 		},
 		{
 			name:     "valid",

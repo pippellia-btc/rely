@@ -54,6 +54,16 @@ func (n NoticeResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string{"NOTICE", n.Message})
 }
 
+type OkResponse struct {
+	ID     string
+	Saved  bool
+	Reason string
+}
+
+func (o OkResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]any{"OK", o.ID, o.Saved, o.Reason})
+}
+
 type ClosedResponse struct {
 	ID     string
 	Reason string
@@ -92,7 +102,7 @@ func (c *Client) Read() {
 		case "EVENT":
 			event, err := request.ToEventRequest()
 			if err != nil {
-				c.Conn.WriteJSON(NoticeResponse{Message: err.Error()})
+				c.Conn.WriteJSON(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
@@ -101,7 +111,7 @@ func (c *Client) Read() {
 		case "REQ":
 			req, err := request.ToReqRequest()
 			if err != nil {
-				c.Conn.WriteJSON(NoticeResponse{Message: err.Error()})
+				c.Conn.WriteJSON(ClosedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
