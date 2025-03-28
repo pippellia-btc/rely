@@ -25,7 +25,7 @@ type Client struct {
 	Relay *Relay
 
 	Conn *websocket.Conn
-	Send chan []byte
+	Send chan Response
 	Subs []Subscription
 }
 
@@ -45,6 +45,8 @@ func (c *Client) CloseSubscription(ID string) {
 		}
 	}
 }
+
+type Response = json.Marshaler
 
 type NoticeResponse struct {
 	Message string
