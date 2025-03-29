@@ -23,14 +23,9 @@ var (
 	ErrTooManyOpenFilters = errors.New("too many open filters, please close some subscriptions")
 )
 
-type request struct {
-	Label string
-	array []json.RawMessage
-}
-
 type EventRequest struct {
 	client *Client // the client the request come from
-	Event  nostr.Event
+	Event  *nostr.Event
 }
 
 type ReqRequest struct {
@@ -53,6 +48,10 @@ type RequestError struct {
 func (e *RequestError) Error() string { return e.Err.Error() }
 
 func (e *RequestError) Is(target error) bool {
+	if e == nil {
+		return target == nil
+	}
+
 	t, ok := target.(*RequestError)
 	if !ok {
 		return false
@@ -61,61 +60,47 @@ func (e *RequestError) Is(target error) bool {
 	return t.ID == e.ID && errors.Is(e.Err, t.Err)
 }
 
-// Parse decodes the JSON array message from the websocket connection into a [request].
-// The request must then be converted using the appropriate To<type's name> method e.g. [request.ToEventRequest].
-func Parse(data []byte) (request, error) {
-	var arr []json.RawMessage
-	if err := json.Unmarshal(data, &arr); err != nil {
-		return request{}, fmt.Errorf("%w: %w", ErrGeneric, err)
+// JSONArray decodes the message received from the websocket.
+// Based on the label (e.g. "EVENT"), the json array will be parsed into its own structure (e.g. [EventRequest])
+func JSONArray(data []byte) (label string, array []json.RawMessage, err error) {
+	if err := json.Unmarshal(data, &array); err != nil {
+		return "", nil, fmt.Errorf("%w: %w", ErrGeneric, err)
 	}
 
-	if len(arr) < 2 {
-		return request{}, ErrGeneric
+	if len(array) < 2 {
+		return "", nil, ErrGeneric
 	}
 
-	var label string
-	if err := json.Unmarshal(arr[0], &label); err != nil {
-		return request{}, fmt.Errorf("%w: %w", ErrGeneric, err)
+	if err := json.Unmarshal(array[0], &label); err != nil {
+		return "", nil, fmt.Errorf("%w: %w", ErrGeneric, err)
 	}
 
-	return request{Label: label, array: arr[1:]}, nil
+	return label, array[1:], nil
 }
 
-// ToEventRequest converts the request into an [EventRequest], validating the ID and signature of the event.
-func (r request) ToEventRequest() (*EventRequest, *RequestError) {
+// ParseEventRequest parses the json array into an [EventRequest].
+func ParseEventRequest(array []json.RawMessage) (*EventRequest, *RequestError) {
 	var event nostr.Event
-	if err := json.Unmarshal(r.array[0], &event); err != nil {
+	if err := json.Unmarshal(array[0], &event); err != nil {
 		return nil, &RequestError{Err: fmt.Errorf("%w: %w", ErrInvalidEventRequest, err)}
 	}
 
-	if !event.CheckID() {
-		return nil, &RequestError{ID: event.ID, Err: ErrInvalidEventID}
-	}
-
-	match, err := event.CheckSignature()
-	if !match {
-		if err != nil {
-			return nil, &RequestError{ID: event.ID, Err: fmt.Errorf("%w: %s", ErrInvalidEventSignature, err.Error())}
-		}
-		return nil, &RequestError{ID: event.ID, Err: ErrInvalidEventSignature}
-	}
-
-	return &EventRequest{Event: event}, nil
+	return &EventRequest{Event: &event}, nil
 }
 
-// ToReqRequest converts the request into an [ReqRequest], validating the subscription ID.
-func (r request) ToReqRequest() (*ReqRequest, *RequestError) {
-	ID, err := parseID(r.array[0])
+// ParseReqRequest parses the json array into an [ReqRequest], validating the subscription ID.
+func ParseReqRequest(array []json.RawMessage) (*ReqRequest, *RequestError) {
+	ID, err := parseID(array[0])
 	if err != nil {
 		return nil, err
 	}
 
-	if len(r.array) < 2 {
+	if len(array) < 2 {
 		return nil, &RequestError{ID: ID, Err: ErrInvalidReqRequest}
 	}
 
-	filters := make(nostr.Filters, len(r.array)-1)
-	for i, filter := range r.array[1:] {
+	filters := make(nostr.Filters, len(array)-1)
+	for i, filter := range array[1:] {
 		if err := json.Unmarshal(filter, &filters[i]); err != nil {
 			return nil, &RequestError{ID: ID, Err: fmt.Errorf("%w: failed to decode filter at index %d: %s", ErrInvalidReqRequest, i, err)}
 		}
@@ -124,9 +109,9 @@ func (r request) ToReqRequest() (*ReqRequest, *RequestError) {
 	return &ReqRequest{ID: ID, Filters: filters}, nil
 }
 
-// ToCloseRequest converts the request into an [CloseRequest], validating the subscription ID.
-func (r request) ToCloseRequest() (*CloseRequest, *RequestError) {
-	ID, err := parseID(r.array[0])
+// ParseCloseRequest parses the json array into an [CloseRequest], validating the subscription ID.
+func ParseCloseRequest(array []json.RawMessage) (*CloseRequest, *RequestError) {
+	ID, err := parseID(array[0])
 	if err != nil {
 		return nil, err
 	}

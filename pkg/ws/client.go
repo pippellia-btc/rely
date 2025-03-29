@@ -81,7 +81,7 @@ func (c *Client) RejectReq(req *ReqRequest) *RequestError {
 
 func (c *Client) RejectEvent(e *EventRequest) *RequestError {
 	for _, reject := range c.Relay.RejectEvent {
-		if err := reject(&e.Event); err != nil {
+		if err := reject(e.Event); err != nil {
 			return &RequestError{ID: e.Event.ID, Err: err}
 		}
 	}
@@ -120,7 +120,7 @@ func (c ClosedResponse) MarshalJSON() ([]byte, error) {
 
 type EventResponse struct {
 	ID    string
-	Event nostr.Event
+	Event *nostr.Event
 }
 
 func (e EventResponse) MarshalJSON() ([]byte, error) {
@@ -154,15 +154,15 @@ func (c *Client) Read() {
 			return
 		}
 
-		request, err := Parse(data)
+		label, json, err := JSONArray(data)
 		if err != nil {
 			// disconnect since this guy is not talking nostr
 			return
 		}
 
-		switch request.Label {
+		switch label {
 		case "EVENT":
-			event, err := request.ToEventRequest()
+			event, err := ParseEventRequest(json)
 			if err != nil {
 				c.Send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
 				continue
@@ -173,10 +173,11 @@ func (c *Client) Read() {
 				continue
 			}
 
+			event.client = c
 			c.Relay.EventQueue <- event
 
 		case "REQ":
-			req, err := request.ToReqRequest()
+			req, err := ParseReqRequest(json)
 			if err != nil {
 				c.Send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
 				continue
@@ -191,7 +192,7 @@ func (c *Client) Read() {
 			c.Relay.ReqQueue <- req
 
 		case "CLOSE":
-			close, err := request.ToCloseRequest()
+			close, err := ParseCloseRequest(json)
 			if err != nil {
 				c.Send <- NoticeResponse{Message: err.Error()}
 				continue

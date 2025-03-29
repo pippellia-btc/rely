@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -37,12 +38,12 @@ type Relay struct {
 
 type RelayFunctions struct {
 	// a filter is accepted iff. err is nil. WARNING: All functions MUST be thread-safe.
-	RejectFilter []func(*nostr.Filter) error
-	Query        func(context.Context, *nostr.Filter) ([]nostr.Event, error)
+	RejectFilter []func(f *nostr.Filter) error
+	Query        func(ctx context.Context, f *nostr.Filter) ([]nostr.Event, error)
 
 	// an event is accepted iff. err is nil. WARNING: All functions MUST be thread-safe.
-	RejectEvent []func(*nostr.Event) error
-	Save        func(*nostr.Event) error
+	RejectEvent []func(e *nostr.Event) error
+	Save        func(e *nostr.Event) error
 }
 
 type ClientLimits struct {
@@ -52,7 +53,7 @@ type ClientLimits struct {
 	PingPeriod     time.Duration
 	MaxMessageSize int64
 
-	// client imits
+	// client limits
 	MaxFiltersPerClient int
 }
 
@@ -67,18 +68,17 @@ func NewClientLimits() ClientLimits {
 }
 
 func NewRelay() *Relay {
-	return NewRelayWithOptions(NewClientLimits())
-}
-
-func NewRelayWithOptions(limits ClientLimits) *Relay {
-	return &Relay{
+	r := &Relay{
 		EventQueue:   make(chan *EventRequest, 1000),
 		ReqQueue:     make(chan *ReqRequest, 1000),
 		Clients:      make(map[*Client]bool, 100),
 		Register:     make(chan *Client, 10),
 		Unregister:   make(chan *Client, 10),
-		ClientLimits: limits,
+		ClientLimits: NewClientLimits(),
 	}
+
+	r.RejectEvent = append(r.RejectEvent, BadID, BadSignature)
+	return r
 }
 
 func (r *Relay) Run() {
@@ -94,14 +94,14 @@ func (r *Relay) Run() {
 			}
 
 		case event := <-r.EventQueue:
-			if err := r.Save(&event.Event); err != nil {
+			if err := r.Save(event.Event); err != nil {
 				event.client.Send <- OkResponse{ID: event.Event.ID, Saved: false, Reason: err.Error()}
 				break
 			}
 
 			event.client.Send <- OkResponse{ID: event.Event.ID, Saved: true}
 			for client := range r.Clients {
-				match, subID := client.MatchesSubscription(&event.Event)
+				match, subID := client.MatchesSubscription(event.Event)
 				if match {
 					client.Send <- EventResponse{ID: subID, Event: event.Event}
 				}
@@ -120,7 +120,7 @@ func (r *Relay) Run() {
 			}
 
 			for _, event := range events {
-				req.client.Send <- EventResponse{ID: req.ID, Event: event}
+				req.client.Send <- EventResponse{ID: req.ID, Event: &event}
 			}
 
 			req.client.Send <- EoseResponse{ID: req.ID}
@@ -142,4 +142,25 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 
 	go client.Write()
 	go client.Read()
+}
+
+// BadID returns an error if the event's ID is invalid
+func BadID(e *nostr.Event) error {
+	if !e.CheckID() {
+		return ErrInvalidEventID
+	}
+	return nil
+}
+
+// BadSignature returns an error if the event's signature is invalid
+func BadSignature(e *nostr.Event) error {
+	match, err := e.CheckSignature()
+	if !match {
+		if err != nil {
+			return fmt.Errorf("%w: %s", ErrInvalidEventSignature, err.Error())
+		}
+		return ErrInvalidEventSignature
+	}
+
+	return nil
 }
