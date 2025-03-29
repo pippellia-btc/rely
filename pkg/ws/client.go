@@ -18,7 +18,7 @@ type Subscription struct {
 
 /*
 Client is a middleman between the websocket connection and the [Relay].
-It's responsible for reading and parsing the requests, and for writing the responses
+It's responsible for reading and validating the requests, and for writing the responses
 if they satisfy at least one [Subscription].
 */
 type Client struct {
@@ -33,6 +33,7 @@ func (c *Client) NewSubscription(request *ReqRequest) {
 	sub := Subscription{ID: request.ID, Filters: request.Filters}
 	request.ctx, sub.cancel = context.WithCancel(context.Background())
 	c.Subs = append(c.Subs, sub)
+	request.client = c
 }
 
 func (c *Client) CloseSubscription(ID string) {
@@ -44,6 +45,48 @@ func (c *Client) CloseSubscription(ID string) {
 			return
 		}
 	}
+}
+
+func (c *Client) MatchesSubscription(event *nostr.Event) (match bool, ID string) {
+	for _, sub := range c.Subs {
+		if sub.Filters.Match(event) {
+			return true, sub.ID
+		}
+	}
+
+	return false, ""
+}
+
+func (c *Client) RejectReq(req *ReqRequest) *RequestError {
+	filters := len(req.Filters)
+	for _, sub := range c.Subs {
+		filters += len(sub.Filters)
+	}
+
+	if filters > c.Relay.MaxFiltersPerClient {
+		return &RequestError{ID: req.ID, Err: ErrTooManyOpenFilters}
+	}
+
+	for _, filter := range req.Filters {
+		for _, reject := range c.Relay.RejectFilter {
+			// reject everything if any of the filters is rejected
+			if err := reject(&filter); err != nil {
+				return &RequestError{ID: req.ID, Err: err}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) RejectEvent(e *EventRequest) *RequestError {
+	for _, reject := range c.Relay.RejectEvent {
+		if err := reject(&e.Event); err != nil {
+			return &RequestError{ID: e.Event.ID, Err: err}
+		}
+	}
+
+	return nil
 }
 
 type Response = json.Marshaler
@@ -75,6 +118,23 @@ func (c ClosedResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string{"CLOSED", c.ID, c.Reason})
 }
 
+type EventResponse struct {
+	ID    string
+	Event nostr.Event
+}
+
+func (e EventResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]any{"EVENT", e.ID, e.Event})
+}
+
+type EoseResponse struct {
+	ID string
+}
+
+func (e EoseResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]string{"EOSE", e.ID})
+}
+
 func (c *Client) Read() {
 	defer func() {
 		c.Relay.Unregister <- c
@@ -96,15 +156,20 @@ func (c *Client) Read() {
 
 		request, err := Parse(data)
 		if err != nil {
-			c.Conn.WriteJSON(NoticeResponse{Message: err.Error()})
-			continue
+			// disconnect since this guy is not talking nostr
+			return
 		}
 
 		switch request.Label {
 		case "EVENT":
 			event, err := request.ToEventRequest()
 			if err != nil {
-				c.Conn.WriteJSON(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+				c.Send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
+				continue
+			}
+
+			if err := c.RejectEvent(event); err != nil {
+				c.Send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
 				continue
 			}
 
@@ -113,7 +178,12 @@ func (c *Client) Read() {
 		case "REQ":
 			req, err := request.ToReqRequest()
 			if err != nil {
-				c.Conn.WriteJSON(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				c.Send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
+				continue
+			}
+
+			if err := c.RejectReq(req); err != nil {
+				c.Send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
 				continue
 			}
 
@@ -123,14 +193,14 @@ func (c *Client) Read() {
 		case "CLOSE":
 			close, err := request.ToCloseRequest()
 			if err != nil {
-				c.Conn.WriteJSON(NoticeResponse{Message: err.Error()})
+				c.Send <- NoticeResponse{Message: err.Error()}
 				continue
 			}
 
 			c.CloseSubscription(close.ID)
 
 		default:
-			c.Conn.WriteJSON(NoticeResponse{Message: ErrUnsupportedType.Error()})
+			c.Send <- NoticeResponse{Message: ErrUnsupportedType.Error()}
 		}
 	}
 }
