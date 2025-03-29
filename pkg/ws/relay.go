@@ -53,7 +53,7 @@ type ClientLimits struct {
 	PingPeriod     time.Duration
 	MaxMessageSize int64
 
-	// client limits
+	// nostr limits
 	MaxFiltersPerClient int
 }
 

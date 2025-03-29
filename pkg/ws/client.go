@@ -29,17 +29,17 @@ type Client struct {
 	Subs []Subscription
 }
 
-func (c *Client) NewSubscription(request *ReqRequest) {
-	sub := Subscription{ID: request.ID, Filters: request.Filters}
-	request.ctx, sub.cancel = context.WithCancel(context.Background())
+func (c *Client) NewSubscription(req *ReqRequest) {
+	sub := Subscription{ID: req.ID, Filters: req.Filters}
+	req.ctx, sub.cancel = context.WithCancel(context.Background())
 	c.Subs = append(c.Subs, sub)
-	request.client = c
+	req.client = c
 }
 
 func (c *Client) CloseSubscription(ID string) {
 	for i, sub := range c.Subs {
 		if sub.ID == ID {
-			// cancel the context and remove the subscription from the client
+			// cancels the context of the associated REQ and removes the subscription from the client
 			sub.cancel()
 			c.Subs = append(c.Subs[:i], c.Subs[i+1:]...)
 			return

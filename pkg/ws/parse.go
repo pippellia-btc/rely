@@ -24,7 +24,7 @@ var (
 )
 
 type EventRequest struct {
-	client *Client // the client the request come from
+	client *Client // the client where the request come from
 	Event  *nostr.Event
 }
 
@@ -32,7 +32,7 @@ type ReqRequest struct {
 	ID  string          // the subscription ID
 	ctx context.Context // will be cancelled when the subscription is closed
 
-	client *Client // the client the request come from
+	client *Client // the client where the request come from
 	nostr.Filters
 }
 
@@ -60,8 +60,10 @@ func (e *RequestError) Is(target error) bool {
 	return t.ID == e.ID && errors.Is(e.Err, t.Err)
 }
 
-// JSONArray decodes the message received from the websocket.
-// Based on the label (e.g. "EVENT"), the json array will be parsed into its own structure (e.g. [EventRequest])
+/*
+JSONArray decodes the message received from the websocket into a label and json array.
+Based on this label (e.g. "EVENT"), the caller can parse the json into its own structure (e.g. via [ParseEventRequest])
+*/
 func JSONArray(data []byte) (label string, array []json.RawMessage, err error) {
 	if err := json.Unmarshal(data, &array); err != nil {
 		return "", nil, fmt.Errorf("%w: %w", ErrGeneric, err)
