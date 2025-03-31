@@ -10,17 +10,17 @@ import (
 )
 
 var (
-	ErrGeneric         = errors.New("the request must be a JSON array with a length greater than two")
-	ErrUnsupportedType = errors.New("the request type must be one between 'EVENT', 'REQ' and 'CLOSE'")
+	ErrGeneric         = errors.New(`the request must be a JSON array with a length greater than two`)
+	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ' and 'CLOSE'`)
 
-	ErrInvalidEventRequest   = errors.New("an EVENT request must follow this format: ['EVENT', <event JSON>]")
-	ErrInvalidEventID        = errors.New("invalid event ID")
-	ErrInvalidEventSignature = errors.New("invalid event signature")
+	ErrInvalidEventRequest   = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
+	ErrInvalidEventID        = errors.New(`invalid event ID`)
+	ErrInvalidEventSignature = errors.New(`invalid event signature`)
 
-	ErrInvalidReqRequest     = errors.New("a REQ request must follow this format: ['REQ', <subscription_id>, <filter1>, <filter2>, ...]")
-	ErrInvalidSubscriptionID = errors.New("invalid subscription ID")
+	ErrInvalidReqRequest     = errors.New(`a REQ request must follow this format: ['REQ', {subscription_id}, {filter1}, {filter2}, ...]`)
+	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
 
-	ErrTooManyOpenFilters = errors.New("too many open filters, please close some subscriptions")
+	ErrTooManyOpenFilters = errors.New(`too many open filters, please close some subscriptions`)
 )
 
 type EventRequest struct {

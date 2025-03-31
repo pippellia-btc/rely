@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"slices"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -24,31 +25,49 @@ if they satisfy at least one [Subscription].
 type Client struct {
 	Relay *Relay
 
-	Conn *websocket.Conn
-	Send chan Response
-	Subs []Subscription
-}
-
-func (c *Client) NewSubscription(req *ReqRequest) {
-	sub := Subscription{ID: req.ID, Filters: req.Filters}
-	req.ctx, sub.cancel = context.WithCancel(context.Background())
-	c.Subs = append(c.Subs, sub)
-	req.client = c
+	Conn          *websocket.Conn
+	Send          chan Response
+	Subscriptions []Subscription
 }
 
 func (c *Client) CloseSubscription(ID string) {
-	for i, sub := range c.Subs {
+	for i, sub := range c.Subscriptions {
 		if sub.ID == ID {
 			// cancels the context of the associated REQ and removes the subscription from the client
 			sub.cancel()
-			c.Subs = append(c.Subs[:i], c.Subs[i+1:]...)
+			c.Subscriptions = append(c.Subscriptions[:i], c.Subscriptions[i+1:]...)
+
+			log.Printf("closes subscription %s; current subscriptions %v", sub.ID, c.Subscriptions)
 			return
 		}
 	}
 }
 
+func (c *Client) NewSubscription(req *ReqRequest) {
+	sub := Subscription{ID: req.ID, Filters: req.Filters}
+	req.ctx, sub.cancel = context.WithCancel(context.Background())
+	req.client = c
+
+	pos := slices.IndexFunc(c.Subscriptions, func(s Subscription) bool {
+		return s.ID == req.ID
+	})
+
+	switch pos {
+	case -1:
+		// the REQ has an ID that was never seen, so we add a new subscription
+		c.Subscriptions = append(c.Subscriptions, sub)
+		log.Printf("created new subscription %s; current subscriptions %v", sub.ID, c.Subscriptions)
+
+	default:
+		// the REQ is overwriting an existing subscription, so we cancel and remove the old for the new
+		c.Subscriptions[pos].cancel()
+		c.Subscriptions[pos] = sub
+		log.Printf("overwrite subscription %s; current subscriptions %v", sub.ID, c.Subscriptions)
+	}
+}
+
 func (c *Client) MatchesSubscription(event *nostr.Event) (match bool, ID string) {
-	for _, sub := range c.Subs {
+	for _, sub := range c.Subscriptions {
 		if sub.Filters.Match(event) {
 			return true, sub.ID
 		}
@@ -58,24 +77,11 @@ func (c *Client) MatchesSubscription(event *nostr.Event) (match bool, ID string)
 }
 
 func (c *Client) RejectReq(req *ReqRequest) *RequestError {
-	filters := len(req.Filters)
-	for _, sub := range c.Subs {
-		filters += len(sub.Filters)
-	}
-
-	if filters > c.Relay.MaxFiltersPerClient {
-		return &RequestError{ID: req.ID, Err: ErrTooManyOpenFilters}
-	}
-
-	for _, filter := range req.Filters {
-		for _, reject := range c.Relay.RejectFilter {
-			// reject everything if any of the filters is rejected
-			if err := reject(&filter); err != nil {
-				return &RequestError{ID: req.ID, Err: err}
-			}
+	for _, reject := range c.Relay.RejectFilters {
+		if err := reject(req.ctx, req.Filters); err != nil {
+			return &RequestError{ID: req.ID, Err: err}
 		}
 	}
-
 	return nil
 }
 
@@ -85,7 +91,6 @@ func (c *Client) RejectEvent(e *EventRequest) *RequestError {
 			return &RequestError{ID: e.Event.ID, Err: err}
 		}
 	}
-
 	return nil
 }
 
@@ -148,7 +153,10 @@ func (c *Client) Read() {
 	for {
 		_, data, err := c.Conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if websocket.IsUnexpectedCloseError(err,
+				websocket.CloseNormalClosure,
+				websocket.CloseGoingAway,
+				websocket.CloseAbnormalClosure) {
 				log.Printf("unexpected close error: %v", err)
 			}
 			return

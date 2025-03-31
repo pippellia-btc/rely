@@ -38,12 +38,12 @@ type Relay struct {
 
 type RelayFunctions struct {
 	// a filter is accepted iff. err is nil. WARNING: All functions MUST be thread-safe.
-	RejectFilter []func(f *nostr.Filter) error
-	Query        func(ctx context.Context, f *nostr.Filter) ([]nostr.Event, error)
+	RejectFilters []func(context.Context, nostr.Filters) error
+	Query         func(context.Context, nostr.Filters) ([]nostr.Event, error)
 
 	// an event is accepted iff. err is nil. WARNING: All functions MUST be thread-safe.
-	RejectEvent []func(e *nostr.Event) error
-	Save        func(e *nostr.Event) error
+	RejectEvent []func(*nostr.Event) error
+	Save        func(*nostr.Event) error
 }
 
 type ClientLimits struct {
@@ -108,15 +108,13 @@ func (r *Relay) Run() {
 			}
 
 		case req := <-r.ReqQueue:
-			events := make([]nostr.Event, 0, len(req.Filters)) // conservative pre-allocation
-			for _, filter := range req.Filters {
-				new, err := r.Query(req.ctx, &filter)
-				if err != nil {
+			events, err := r.Query(req.ctx, req.Filters)
+			if err != nil {
+				if req.ctx.Err() == nil {
+					// the error was not caused by the user cancelling the request
 					req.client.Send <- ClosedResponse{ID: req.ID, Reason: err.Error()}
-					break
 				}
-
-				events = append(events, new...)
+				break
 			}
 
 			for _, event := range events {
@@ -126,6 +124,17 @@ func (r *Relay) Run() {
 			req.client.Send <- EoseResponse{ID: req.ID}
 		}
 	}
+}
+
+// ServeHTTP implements http.Handler interface, only handling WebSocket connections.
+func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.Header.Get("Upgrade") == "websocket" {
+		r.HandleWebsocket(w, req)
+		return
+	}
+
+	// If it's not a WebSocket request, return 426 Upgrade Required
+	http.Error(w, "Expected WebSocket connection", http.StatusUpgradeRequired)
 }
 
 // HandleWebsocket upgrades the http request to a websocket, creates a [Client], and registers it with the [Relay].
@@ -139,6 +148,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 
 	client := &Client{Relay: r, Conn: conn, Send: make(chan Response, 100)}
 	r.Register <- client
+	log.Printf("registering client")
 
 	go client.Write()
 	go client.Read()
