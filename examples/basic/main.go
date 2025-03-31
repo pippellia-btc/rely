@@ -9,12 +9,15 @@ import (
 )
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	go rely.HandleSignals(cancel)
+
 	relay := rely.NewRelay()
 	relay.OnEvent = Save
 	relay.OnFilters = Query
 
 	log.Printf("running relay on %s", relay.Address)
-	if err := relay.StartAndServe(context.Background()); err != nil {
+	if err := relay.StartAndServe(ctx); err != nil {
 		panic(err)
 	}
 }

@@ -3,6 +3,7 @@ package rely
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -64,12 +65,12 @@ type RelayFunctions struct {
 	OnFilters func(context.Context, *Client, nostr.Filters) ([]nostr.Event, error)
 }
 
-// NewRelayFunctions that do nothing, to avoid panicking on a nil method.
+// NewRelayFunctions that only logs stuff, to avoid panicking on a nil method.
 func NewRelayFunctions() RelayFunctions {
 	return RelayFunctions{
 		OnConnect: func(c *Client) error { return nil },
-		OnEvent:   func(c *Client, e *nostr.Event) error { return nil },
-		OnFilters: func(ctx context.Context, c *Client, f nostr.Filters) ([]nostr.Event, error) { return nil, nil },
+		OnEvent:   logEvent,
+		OnFilters: logFilters,
 	}
 }
 
@@ -89,6 +90,7 @@ func NewWebsocketLimits() WebsocketLimits {
 	}
 }
 
+// NewRelay creates a new relay with default values and functions.
 func NewRelay() *Relay {
 	r := &Relay{
 		Address:         "localhost:3334",
@@ -152,10 +154,32 @@ func (n NoticeResponse) MarshalJSON() ([]byte, error) {
 }
 
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
-// It's a blocking operation. Use Start if you don't want to listen and serve right away.
+// It's a blocking operation, that stops only when the context get cancelled.
+// Use Start if you don't want to listen and serve right away.
 func (r *Relay) StartAndServe(ctx context.Context) error {
 	go r.start(ctx)
-	return http.ListenAndServe(r.Address, r)
+	server := &http.Server{Addr: r.Address, Handler: r}
+	exitErr := make(chan error, 1)
+
+	go func() {
+		err := server.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			// this error is the normal termination of the program
+			err = nil
+		}
+
+		exitErr <- err
+	}()
+
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+
+	return <-exitErr
 }
 
 // Start the relay in another goroutine, which can later be served using http.ListenAndServe.
@@ -222,7 +246,7 @@ func (r *Relay) start(ctx context.Context) {
 	}
 }
 
-// kill sends a close response for each subscription of each client, and then closes all relay queues and channels.
+// kill sends a close response for each subscription of each client, and then closes all relay channels.
 func (r *Relay) kill() {
 	log.Println("shutting down the relay...")
 	defer log.Println("relay stopped")

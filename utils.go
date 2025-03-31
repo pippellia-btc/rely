@@ -1,10 +1,15 @@
 package rely
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -47,4 +52,23 @@ func IP(r *http.Request) string {
 	}
 
 	return host
+}
+
+func logEvent(c *Client, e *nostr.Event) error {
+	log.Printf("received eventID %s from IP %s", e.ID, c.IP)
+	return nil
+}
+
+func logFilters(ctx context.Context, c *Client, f nostr.Filters) ([]nostr.Event, error) {
+	log.Printf("received %d filters from IP %s", len(f), c.IP)
+	return nil, nil
+}
+
+// HandleSignals listens to os signals, and then fires the cancel() function.
+// This cancels the associated context, propagating the signal to the rest of the program.
+func HandleSignals(cancel context.CancelFunc) {
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
+	<-signalChan
+	cancel()
 }
