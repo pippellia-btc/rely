@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/pippellia-btc/rely/pkg/ws"
+	"github.com/pippellia-btc/rely/pkg/rely"
 )
 
 func main() {
-	relay := ws.NewRelay()
+	relay := rely.NewRelay()
 	relay.Save = Save
 	relay.Query = Query
 
@@ -24,19 +24,19 @@ func main() {
 	}
 }
 
-func Save(e *nostr.Event) error {
+func Save(c *rely.Client, e *nostr.Event) error {
 	log.Println(e)
 	return nil
 }
 
-func Query(ctx context.Context, f nostr.Filters) ([]nostr.Event, error) {
-	time.Sleep(10 * time.Second)
+func Query(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event, error) {
+	time.Sleep(5 * time.Second)
 
 	select {
 	case <-ctx.Done():
 		return nil, fmt.Errorf("context was cancelled")
 
 	default:
-		return []nostr.Event{{ID: "hello"}}, nil
+		return []nostr.Event{{Kind: 1, ID: "hello"}}, nil
 	}
 }

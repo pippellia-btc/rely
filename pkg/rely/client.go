@@ -1,4 +1,4 @@
-package ws
+package rely
 
 import (
 	"context"
@@ -78,7 +78,7 @@ func (c *Client) MatchesSubscription(event *nostr.Event) (match bool, ID string)
 
 func (c *Client) RejectReq(req *ReqRequest) *RequestError {
 	for _, reject := range c.Relay.RejectFilters {
-		if err := reject(req.ctx, req.Filters); err != nil {
+		if err := reject(req.ctx, req.client, req.Filters); err != nil {
 			return &RequestError{ID: req.ID, Err: err}
 		}
 	}
@@ -87,7 +87,7 @@ func (c *Client) RejectReq(req *ReqRequest) *RequestError {
 
 func (c *Client) RejectEvent(e *EventRequest) *RequestError {
 	for _, reject := range c.Relay.RejectEvent {
-		if err := reject(e.Event); err != nil {
+		if err := reject(e.client, e.Event); err != nil {
 			return &RequestError{ID: e.Event.ID, Err: err}
 		}
 	}

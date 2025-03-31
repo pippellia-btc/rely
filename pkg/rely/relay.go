@@ -1,4 +1,4 @@
-package ws
+package rely
 
 import (
 	"context"
@@ -12,11 +12,10 @@ import (
 )
 
 const (
-	DefaultWriteWait           time.Duration = 10 * time.Second
-	DefaultPongWait            time.Duration = 60 * time.Second
-	DefaultPingPeriod          time.Duration = 45 * time.Second
-	DefaultMaxMessageSize      int64         = 512000
-	DefaultMaxFiltersPerClient int           = 20
+	DefaultWriteWait      time.Duration = 10 * time.Second
+	DefaultPongWait       time.Duration = 60 * time.Second
+	DefaultPingPeriod     time.Duration = 45 * time.Second
+	DefaultMaxMessageSize int64         = 512000
 )
 
 var upgrader = websocket.Upgrader{
@@ -33,48 +32,44 @@ type Relay struct {
 	Unregister chan *Client
 
 	RelayFunctions
-	ClientLimits
+	WebsocketLimits
 }
 
 type RelayFunctions struct {
-	// a filter is accepted iff. err is nil. WARNING: All functions MUST be thread-safe.
-	RejectFilters []func(context.Context, nostr.Filters) error
-	Query         func(context.Context, nostr.Filters) ([]nostr.Event, error)
+	// a connection/event/filter is accepted if and only if err is nil.
+	// WARNING: All functions MUST be thread-safe.
+	RejectConnection []func(*http.Request) error
+	RejectEvent      []func(*Client, *nostr.Event) error
+	RejectFilters    []func(context.Context, *Client, nostr.Filters) error
 
-	// an event is accepted iff. err is nil. WARNING: All functions MUST be thread-safe.
-	RejectEvent []func(*nostr.Event) error
-	Save        func(*nostr.Event) error
+	Query func(context.Context, *Client, nostr.Filters) ([]nostr.Event, error)
+	Save  func(*Client, *nostr.Event) error
 }
 
-type ClientLimits struct {
-	// websocket limits
+type WebsocketLimits struct {
 	WriteWait      time.Duration
 	PongWait       time.Duration
 	PingPeriod     time.Duration
 	MaxMessageSize int64
-
-	// nostr limits
-	MaxFiltersPerClient int
 }
 
-func NewClientLimits() ClientLimits {
-	return ClientLimits{
-		WriteWait:           DefaultWriteWait,
-		PongWait:            DefaultPongWait,
-		PingPeriod:          DefaultPingPeriod,
-		MaxMessageSize:      DefaultMaxMessageSize,
-		MaxFiltersPerClient: DefaultMaxFiltersPerClient,
+func NewWebsocketLimits() WebsocketLimits {
+	return WebsocketLimits{
+		WriteWait:      DefaultWriteWait,
+		PongWait:       DefaultPongWait,
+		PingPeriod:     DefaultPingPeriod,
+		MaxMessageSize: DefaultMaxMessageSize,
 	}
 }
 
 func NewRelay() *Relay {
 	r := &Relay{
-		EventQueue:   make(chan *EventRequest, 1000),
-		ReqQueue:     make(chan *ReqRequest, 1000),
-		Clients:      make(map[*Client]bool, 100),
-		Register:     make(chan *Client, 10),
-		Unregister:   make(chan *Client, 10),
-		ClientLimits: NewClientLimits(),
+		EventQueue:      make(chan *EventRequest, 1000),
+		ReqQueue:        make(chan *ReqRequest, 1000),
+		Clients:         make(map[*Client]bool, 100),
+		Register:        make(chan *Client, 10),
+		Unregister:      make(chan *Client, 10),
+		WebsocketLimits: NewWebsocketLimits(),
 	}
 
 	r.RejectEvent = append(r.RejectEvent, BadID, BadSignature)
@@ -94,24 +89,28 @@ func (r *Relay) Run() {
 			}
 
 		case event := <-r.EventQueue:
-			if err := r.Save(event.Event); err != nil {
+			if err := r.Save(event.client, event.Event); err != nil {
 				event.client.Send <- OkResponse{ID: event.Event.ID, Saved: false, Reason: err.Error()}
 				break
 			}
-
 			event.client.Send <- OkResponse{ID: event.Event.ID, Saved: true}
+
 			for client := range r.Clients {
-				match, subID := client.MatchesSubscription(event.Event)
-				if match {
+				if client == event.client {
+					continue
+				}
+
+				if match, subID := client.MatchesSubscription(event.Event); match {
 					client.Send <- EventResponse{ID: subID, Event: event.Event}
 				}
 			}
 
 		case req := <-r.ReqQueue:
-			events, err := r.Query(req.ctx, req.Filters)
+			events, err := r.Query(req.ctx, req.client, req.Filters)
 			if err != nil {
 				if req.ctx.Err() == nil {
-					// the error was not caused by the user cancelling the request
+					// the error was NOT caused by the user cancelling the request
+					// so we close the subscription with the error message
 					req.client.Send <- ClosedResponse{ID: req.ID, Reason: err.Error()}
 				}
 				break
@@ -133,7 +132,6 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// If it's not a WebSocket request, return 426 Upgrade Required
 	http.Error(w, "Expected WebSocket connection", http.StatusUpgradeRequired)
 }
 
@@ -155,7 +153,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 }
 
 // BadID returns an error if the event's ID is invalid
-func BadID(e *nostr.Event) error {
+func BadID(c *Client, e *nostr.Event) error {
 	if !e.CheckID() {
 		return ErrInvalidEventID
 	}
@@ -163,7 +161,7 @@ func BadID(e *nostr.Event) error {
 }
 
 // BadSignature returns an error if the event's signature is invalid
-func BadSignature(e *nostr.Event) error {
+func BadSignature(c *Client, e *nostr.Event) error {
 	match, err := e.CheckSignature()
 	if !match {
 		if err != nil {
