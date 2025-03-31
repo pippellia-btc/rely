@@ -13,8 +13,8 @@ import (
 
 func main() {
 	relay := rely.NewRelay()
-	relay.Save = Save
-	relay.Query = Query
+	relay.OnEvent = Save
+	relay.OnFilters = Query
 
 	go relay.Run()
 

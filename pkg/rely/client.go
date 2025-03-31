@@ -23,11 +23,12 @@ It's responsible for reading and validating the requests, and for writing the re
 if they satisfy at least one [Subscription].
 */
 type Client struct {
-	Relay *Relay
-
-	Conn          *websocket.Conn
-	Send          chan Response
+	IP            string
 	Subscriptions []Subscription
+
+	Relay *Relay
+	Conn  *websocket.Conn
+	Send  chan Response
 }
 
 func (c *Client) CloseSubscription(ID string) {

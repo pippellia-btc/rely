@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -42,8 +44,8 @@ type RelayFunctions struct {
 	RejectEvent      []func(*Client, *nostr.Event) error
 	RejectFilters    []func(context.Context, *Client, nostr.Filters) error
 
-	Query func(context.Context, *Client, nostr.Filters) ([]nostr.Event, error)
-	Save  func(*Client, *nostr.Event) error
+	OnFilters func(context.Context, *Client, nostr.Filters) ([]nostr.Event, error)
+	OnEvent   func(*Client, *nostr.Event) error
 }
 
 type WebsocketLimits struct {
@@ -89,7 +91,7 @@ func (r *Relay) Run() {
 			}
 
 		case event := <-r.EventQueue:
-			if err := r.Save(event.client, event.Event); err != nil {
+			if err := r.OnEvent(event.client, event.Event); err != nil {
 				event.client.Send <- OkResponse{ID: event.Event.ID, Saved: false, Reason: err.Error()}
 				break
 			}
@@ -106,7 +108,7 @@ func (r *Relay) Run() {
 			}
 
 		case req := <-r.ReqQueue:
-			events, err := r.Query(req.ctx, req.client, req.Filters)
+			events, err := r.OnFilters(req.ctx, req.client, req.Filters)
 			if err != nil {
 				if req.ctx.Err() == nil {
 					// the error was NOT caused by the user cancelling the request
@@ -127,6 +129,12 @@ func (r *Relay) Run() {
 
 // ServeHTTP implements http.Handler interface, only handling WebSocket connections.
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	for _, reject := range r.RejectConnection {
+		if err := reject(req); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+		}
+	}
+
 	if req.Header.Get("Upgrade") == "websocket" {
 		r.HandleWebsocket(w, req)
 		return
@@ -144,9 +152,9 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	client := &Client{Relay: r, Conn: conn, Send: make(chan Response, 100)}
+	client := &Client{IP: IP(req), Relay: r, Conn: conn, Send: make(chan Response, 100)}
 	r.Register <- client
-	log.Printf("registering client")
+	log.Printf("registering client with IP: %s", client.IP)
 
 	go client.Write()
 	go client.Read()
@@ -160,7 +168,7 @@ func BadID(c *Client, e *nostr.Event) error {
 	return nil
 }
 
-// BadSignature returns an error if the event's signature is invalid
+// BadSignature returns an error if the event's signature is invalid.
 func BadSignature(c *Client, e *nostr.Event) error {
 	match, err := e.CheckSignature()
 	if !match {
@@ -171,4 +179,23 @@ func BadSignature(c *Client, e *nostr.Event) error {
 	}
 
 	return nil
+}
+
+// Extracts the IP address from the http request.
+func IP(r *http.Request) string {
+	if IP := r.Header.Get("X-Real-IP"); IP != "" {
+		return IP
+	}
+
+	if IPs := r.Header.Get("X-Forwarded-For"); IPs != "" {
+		first := strings.Split(IPs, ",")[0]
+		return strings.TrimSpace(first)
+	}
+
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr // fallback: return as-is
+	}
+
+	return host
 }
