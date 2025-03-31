@@ -2,7 +2,6 @@ package rely
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"slices"
 	"time"
@@ -26,25 +25,29 @@ type Client struct {
 	IP            string
 	Subscriptions []Subscription
 
-	Relay *Relay
-	Conn  *websocket.Conn
-	Send  chan Response
+	relay *Relay
+	conn  *websocket.Conn
+	send  chan Response
 }
 
-func (c *Client) CloseSubscription(ID string) {
+// Disconnect sends the client to the unregister queue, where it will be removed
+// from the active clients, which will later close the websocket connection.
+func (c *Client) Disconnect() {
+	c.relay.unregister <- c
+}
+
+func (c *Client) closeSubscription(ID string) {
 	for i, sub := range c.Subscriptions {
 		if sub.ID == ID {
 			// cancels the context of the associated REQ and removes the subscription from the client
 			sub.cancel()
 			c.Subscriptions = append(c.Subscriptions[:i], c.Subscriptions[i+1:]...)
-
-			log.Printf("closes subscription %s; current subscriptions %v", sub.ID, c.Subscriptions)
 			return
 		}
 	}
 }
 
-func (c *Client) NewSubscription(req *ReqRequest) {
+func (c *Client) newSubscription(req *ReqRequest) {
 	sub := Subscription{ID: req.ID, Filters: req.Filters}
 	req.ctx, sub.cancel = context.WithCancel(context.Background())
 	req.client = c
@@ -57,28 +60,25 @@ func (c *Client) NewSubscription(req *ReqRequest) {
 	case -1:
 		// the REQ has an ID that was never seen, so we add a new subscription
 		c.Subscriptions = append(c.Subscriptions, sub)
-		log.Printf("created new subscription %s; current subscriptions %v", sub.ID, c.Subscriptions)
 
 	default:
 		// the REQ is overwriting an existing subscription, so we cancel and remove the old for the new
 		c.Subscriptions[pos].cancel()
 		c.Subscriptions[pos] = sub
-		log.Printf("overwrite subscription %s; current subscriptions %v", sub.ID, c.Subscriptions)
 	}
 }
 
-func (c *Client) MatchesSubscription(event *nostr.Event) (match bool, ID string) {
+func (c *Client) matchesSubscription(event *nostr.Event) (match bool, ID string) {
 	for _, sub := range c.Subscriptions {
 		if sub.Filters.Match(event) {
 			return true, sub.ID
 		}
 	}
-
 	return false, ""
 }
 
-func (c *Client) RejectReq(req *ReqRequest) *RequestError {
-	for _, reject := range c.Relay.RejectFilters {
+func (c *Client) rejectReq(req *ReqRequest) *RequestError {
+	for _, reject := range c.relay.RejectFilters {
 		if err := reject(req.ctx, req.client, req.Filters); err != nil {
 			return &RequestError{ID: req.ID, Err: err}
 		}
@@ -86,8 +86,8 @@ func (c *Client) RejectReq(req *ReqRequest) *RequestError {
 	return nil
 }
 
-func (c *Client) RejectEvent(e *EventRequest) *RequestError {
-	for _, reject := range c.Relay.RejectEvent {
+func (c *Client) rejectEvent(e *EventRequest) *RequestError {
+	for _, reject := range c.relay.RejectEvent {
 		if err := reject(e.client, e.Event); err != nil {
 			return &RequestError{ID: e.Event.ID, Err: err}
 		}
@@ -95,70 +95,26 @@ func (c *Client) RejectEvent(e *EventRequest) *RequestError {
 	return nil
 }
 
-type Response = json.Marshaler
-
-type NoticeResponse struct {
-	Message string
-}
-
-func (n NoticeResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]string{"NOTICE", n.Message})
-}
-
-type OkResponse struct {
-	ID     string
-	Saved  bool
-	Reason string
-}
-
-func (o OkResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]any{"OK", o.ID, o.Saved, o.Reason})
-}
-
-type ClosedResponse struct {
-	ID     string
-	Reason string
-}
-
-func (c ClosedResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]string{"CLOSED", c.ID, c.Reason})
-}
-
-type EventResponse struct {
-	ID    string
-	Event *nostr.Event
-}
-
-func (e EventResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]any{"EVENT", e.ID, e.Event})
-}
-
-type EoseResponse struct {
-	ID string
-}
-
-func (e EoseResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]string{"EOSE", e.ID})
-}
-
-func (c *Client) Read() {
+// The client reads from the websocket and parses the data into the appropriate structure (e.g. [ReqRequest]).
+// It manages creation and cancellation of subscriptions, and sends the request to the [Relay] to be processed.
+func (c *Client) read() {
 	defer func() {
-		c.Relay.unregister <- c
-		c.Conn.Close()
+		c.relay.unregister <- c
+		c.conn.Close()
 	}()
 
-	c.Conn.SetReadLimit(c.Relay.MaxMessageSize)
-	c.Conn.SetReadDeadline(time.Now().Add(c.Relay.PongWait))
-	c.Conn.SetPongHandler(func(string) error { c.Conn.SetReadDeadline(time.Now().Add(c.Relay.PongWait)); return nil })
+	c.conn.SetReadLimit(c.relay.MaxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(c.relay.PongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.PongWait)); return nil })
 
 	for {
-		_, data, err := c.Conn.ReadMessage()
+		_, data, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err,
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseAbnormalClosure) {
-				log.Printf("unexpected close error: %v", err)
+				log.Printf("unexpected close error from IP %s: %v", c.IP, err)
 			}
 			return
 		}
@@ -173,72 +129,75 @@ func (c *Client) Read() {
 		case "EVENT":
 			event, err := ParseEventRequest(json)
 			if err != nil {
-				c.Send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
+				c.send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
 				continue
 			}
 
-			if err := c.RejectEvent(event); err != nil {
-				c.Send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
+			if err := c.rejectEvent(event); err != nil {
+				c.send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
 				continue
 			}
 
 			event.client = c
-			c.Relay.EventQueue <- event
+			c.relay.eventQueue <- event
 
 		case "REQ":
 			req, err := ParseReqRequest(json)
 			if err != nil {
-				c.Send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
+				c.send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
 				continue
 			}
 
-			if err := c.RejectReq(req); err != nil {
-				c.Send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
+			if err := c.rejectReq(req); err != nil {
+				c.send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
 				continue
 			}
 
-			c.NewSubscription(req)
-			c.Relay.ReqQueue <- req
+			c.newSubscription(req)
+			c.relay.reqQueue <- req
 
 		case "CLOSE":
 			close, err := ParseCloseRequest(json)
 			if err != nil {
-				c.Send <- NoticeResponse{Message: err.Error()}
+				c.send <- NoticeResponse{Message: err.Error()}
 				continue
 			}
 
-			c.CloseSubscription(close.ID)
+			c.closeSubscription(close.ID)
 
 		default:
-			c.Send <- NoticeResponse{Message: ErrUnsupportedType.Error()}
+			c.send <- NoticeResponse{Message: ErrUnsupportedType.Error()}
 		}
 	}
 }
 
-func (c *Client) Write() {
-	ticker := time.NewTicker(c.Relay.PingPeriod)
+// The client writes to the websocket whatever [Response] it receives in its send channel.
+// Periodically it will write [websocket.PingMessage]s.
+func (c *Client) write() {
+	ticker := time.NewTicker(c.relay.PingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.Conn.Close()
+		c.conn.Close()
 	}()
 
 	for {
 		select {
-		case response, ok := <-c.Send:
+		case response, ok := <-c.send:
 			if !ok {
-				// the relay has closed the channel, which should only happen after the relay has sent a [ClosedResponse].
+				// the relay has closed the channel, which should only happen after
+				// it has sent a [ClosedResponse] for all subscriptions of the client.
 				return
 			}
 
-			c.Conn.SetWriteDeadline(time.Now().Add(c.Relay.WriteWait))
-			if err := c.Conn.WriteJSON(response); err != nil {
+			c.conn.SetWriteDeadline(time.Now().Add(c.relay.WriteWait))
+			if err := c.conn.WriteJSON(response); err != nil {
 				log.Printf("error when attempting to write: %v", err)
 				return
 			}
 
 		case <-ticker.C:
-			c.Conn.SetWriteDeadline(time.Now().Add(c.Relay.WriteWait))
-			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			c.conn.SetWriteDeadline(time.Now().Add(c.relay.WriteWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				log.Printf("ping failed: %v", err)
 				return
 			}

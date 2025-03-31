@@ -19,8 +19,6 @@ var (
 
 	ErrInvalidReqRequest     = errors.New(`a REQ request must follow this format: ['REQ', {subscription_id}, {filter1}, {filter2}, ...]`)
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
-
-	ErrTooManyOpenFilters = errors.New(`too many open filters, please close some subscriptions`)
 )
 
 type EventRequest struct {
@@ -32,8 +30,8 @@ type ReqRequest struct {
 	ID  string          // the subscription ID
 	ctx context.Context // will be cancelled when the subscription is closed
 
-	client *Client // the client where the request come from
-	nostr.Filters
+	client  *Client // the client where the request come from
+	Filters nostr.Filters
 }
 
 type CloseRequest struct {
@@ -60,10 +58,8 @@ func (e *RequestError) Is(target error) bool {
 	return t.ID == e.ID && errors.Is(e.Err, t.Err)
 }
 
-/*
-JSONArray decodes the message received from the websocket into a label and json array.
-Based on this label (e.g. "EVENT"), the caller can parse the json into its own structure (e.g. via [ParseEventRequest])
-*/
+// JSONArray decodes the message received from the websocket into a label and json array.
+// Based on this label (e.g. "EVENT"), the caller can parse the json into its own structure (e.g. via [ParseEventRequest])
 func JSONArray(data []byte) (label string, array []json.RawMessage, err error) {
 	if err := json.Unmarshal(data, &array); err != nil {
 		return "", nil, fmt.Errorf("%w: %w", ErrGeneric, err)

@@ -19,10 +19,8 @@ func main() {
 	relay.OnEvent = Save
 	relay.OnFilters = Query
 
-	go relay.Run()
-	log.Println("running on localhost:3334")
-
-	if err := http.ListenAndServe("localhost:3334", relay); err != nil {
+	log.Printf("running relay on %s", relay.Address)
+	if err := relay.StartAndServe(context.Background()); err != nil {
 		panic(err)
 	}
 }
