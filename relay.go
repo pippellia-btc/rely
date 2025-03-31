@@ -2,11 +2,8 @@ package rely
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -30,8 +27,8 @@ type Relay struct {
 	ReqQueue   chan *ReqRequest
 
 	Clients    map[*Client]bool
-	Register   chan *Client
-	Unregister chan *Client
+	register   chan *Client
+	unregister chan *Client
 
 	RelayFunctions
 	WebsocketLimits
@@ -69,8 +66,8 @@ func NewRelay() *Relay {
 		EventQueue:      make(chan *EventRequest, 1000),
 		ReqQueue:        make(chan *ReqRequest, 1000),
 		Clients:         make(map[*Client]bool, 100),
-		Register:        make(chan *Client, 10),
-		Unregister:      make(chan *Client, 10),
+		register:        make(chan *Client, 10),
+		unregister:      make(chan *Client, 10),
 		WebsocketLimits: NewWebsocketLimits(),
 	}
 
@@ -81,10 +78,10 @@ func NewRelay() *Relay {
 func (r *Relay) Run() {
 	for {
 		select {
-		case client := <-r.Register:
+		case client := <-r.register:
 			r.Clients[client] = true
 
-		case client := <-r.Unregister:
+		case client := <-r.unregister:
 			if _, ok := r.Clients[client]; ok {
 				delete(r.Clients, client)
 				close(client.Send)
@@ -132,6 +129,7 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	for _, reject := range r.RejectConnection {
 		if err := reject(req); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
+			return
 		}
 	}
 
@@ -153,49 +151,9 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 	}
 
 	client := &Client{IP: IP(req), Relay: r, Conn: conn, Send: make(chan Response, 100)}
-	r.Register <- client
+	r.register <- client
 	log.Printf("registering client with IP: %s", client.IP)
 
 	go client.Write()
 	go client.Read()
-}
-
-// BadID returns an error if the event's ID is invalid
-func BadID(c *Client, e *nostr.Event) error {
-	if !e.CheckID() {
-		return ErrInvalidEventID
-	}
-	return nil
-}
-
-// BadSignature returns an error if the event's signature is invalid.
-func BadSignature(c *Client, e *nostr.Event) error {
-	match, err := e.CheckSignature()
-	if !match {
-		if err != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidEventSignature, err.Error())
-		}
-		return ErrInvalidEventSignature
-	}
-
-	return nil
-}
-
-// Extracts the IP address from the http request.
-func IP(r *http.Request) string {
-	if IP := r.Header.Get("X-Real-IP"); IP != "" {
-		return IP
-	}
-
-	if IPs := r.Header.Get("X-Forwarded-For"); IPs != "" {
-		first := strings.Split(IPs, ",")[0]
-		return strings.TrimSpace(first)
-	}
-
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr // fallback: return as-is
-	}
-
-	return host
 }

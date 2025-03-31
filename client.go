@@ -143,7 +143,7 @@ func (e EoseResponse) MarshalJSON() ([]byte, error) {
 
 func (c *Client) Read() {
 	defer func() {
-		c.Relay.Unregister <- c
+		c.Relay.unregister <- c
 		c.Conn.Close()
 	}()
 
@@ -165,7 +165,7 @@ func (c *Client) Read() {
 
 		label, json, err := JSONArray(data)
 		if err != nil {
-			// disconnect since this guy is not talking nostr
+			// disconnect since the client is not talking nostr
 			return
 		}
 
