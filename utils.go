@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -62,6 +64,45 @@ func logEvent(c *Client, e *nostr.Event) error {
 func logFilters(ctx context.Context, c *Client, f nostr.Filters) ([]nostr.Event, error) {
 	log.Printf("received %d filters from IP %s", len(f), c.IP)
 	return nil, nil
+}
+
+// Display important statistics of the relay while it's running.
+// Example usage: go rely.DisplayStats(ctx, relay)
+func DisplayStats(ctx context.Context, r *Relay) {
+	const statsLines = 9
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+			// clear stats, then print
+			fmt.Printf("\033[%dA", statsLines)
+			fmt.Print("\033[J")
+			r.PrintStats()
+		}
+	}
+}
+
+// Print important stats of the relay while it's running.
+func (r *Relay) PrintStats() {
+	goroutines := runtime.NumGoroutine()
+	memStats := new(runtime.MemStats)
+	runtime.ReadMemStats(memStats)
+
+	fmt.Println("---------------- stats ----------------")
+	fmt.Printf("memory: %.2f MB\n", float64(memStats.Alloc)/(1024*1024))
+	fmt.Printf("goroutines: %d\n", goroutines)
+	fmt.Printf("active clients: %d\n", len(r.clients))
+	fmt.Printf("event queue: %d/%d\n", len(r.eventQueue), cap(r.eventQueue))
+	fmt.Printf("req queue: %d/%d\n", len(r.reqQueue), cap(r.reqQueue))
+	fmt.Printf("register channel: %d/%d\n", len(r.register), cap(r.register))
+	fmt.Printf("unregister channel: %d/%d\n", len(r.unregister), cap(r.unregister))
+	fmt.Println("---------------------------------------")
 }
 
 // HandleSignals listens to os signals, and then fires the cancel() function.

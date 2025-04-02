@@ -16,18 +16,16 @@ type Subscription struct {
 	Filters nostr.Filters
 }
 
-/*
-Client is a middleman between the websocket connection and the [Relay].
-It's responsible for reading and validating the requests, and for writing the responses
-if they satisfy at least one [Subscription].
-*/
+// Client is a middleman between the websocket connection and the [Relay].
+// It's responsible for reading and validating the requests, and for writing the responses
+// if they satisfy at least one [Subscription].
 type Client struct {
 	IP            string
 	Subscriptions []Subscription
 
-	relay *Relay
-	conn  *websocket.Conn
-	send  chan Response
+	relay  *Relay
+	conn   *websocket.Conn
+	toSend chan Response
 }
 
 // Disconnect sends the client to the unregister queue, where it will be removed
@@ -129,12 +127,12 @@ func (c *Client) read() {
 		case "EVENT":
 			event, err := ParseEventRequest(json)
 			if err != nil {
-				c.send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
+				c.toSend <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
 				continue
 			}
 
 			if err := c.rejectEvent(event); err != nil {
-				c.send <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
+				c.toSend <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
 				continue
 			}
 
@@ -144,12 +142,12 @@ func (c *Client) read() {
 		case "REQ":
 			req, err := ParseReqRequest(json)
 			if err != nil {
-				c.send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
+				c.toSend <- ClosedResponse{ID: err.ID, Reason: err.Error()}
 				continue
 			}
 
 			if err := c.rejectReq(req); err != nil {
-				c.send <- ClosedResponse{ID: err.ID, Reason: err.Error()}
+				c.toSend <- ClosedResponse{ID: err.ID, Reason: err.Error()}
 				continue
 			}
 
@@ -159,19 +157,19 @@ func (c *Client) read() {
 		case "CLOSE":
 			close, err := ParseCloseRequest(json)
 			if err != nil {
-				c.send <- NoticeResponse{Message: err.Error()}
+				c.toSend <- NoticeResponse{Message: err.Error()}
 				continue
 			}
 
 			c.closeSubscription(close.ID)
 
 		default:
-			c.send <- NoticeResponse{Message: ErrUnsupportedType.Error()}
+			c.toSend <- NoticeResponse{Message: ErrUnsupportedType.Error()}
 		}
 	}
 }
 
-// The client writes to the websocket whatever [Response] it receives in its send channel.
+// The client writes to the websocket whatever [Response] it receives in its toSend channel.
 // Periodically it will write [websocket.PingMessage]s.
 func (c *Client) write() {
 	ticker := time.NewTicker(c.relay.PingPeriod)
@@ -182,10 +180,11 @@ func (c *Client) write() {
 
 	for {
 		select {
-		case response, ok := <-c.send:
+		case response, ok := <-c.toSend:
 			if !ok {
-				// the relay has closed the channel, which should only happen after
-				// it has sent a [ClosedResponse] for all subscriptions of the client.
+				// the relay has closed the channel
+				c.conn.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				return
 			}
 
@@ -202,5 +201,12 @@ func (c *Client) write() {
 				return
 			}
 		}
+	}
+}
+
+func (c *Client) send(r Response) {
+	select {
+	case c.toSend <- r:
+	default:
 	}
 }

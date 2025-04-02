@@ -39,8 +39,6 @@ type Relay struct {
 	reqQueue chan *ReqRequest
 
 	RelayFunctions
-
-	Address string
 	WebsocketLimits
 }
 
@@ -93,9 +91,8 @@ func NewWebsocketLimits() WebsocketLimits {
 // NewRelay creates a new relay with default values and functions.
 func NewRelay() *Relay {
 	r := &Relay{
-		Address:         "localhost:3334",
-		eventQueue:      make(chan *EventRequest, 1000),
-		reqQueue:        make(chan *ReqRequest, 1000),
+		eventQueue:      make(chan *EventRequest, 10000),
+		reqQueue:        make(chan *ReqRequest, 10000),
 		clients:         make(map[*Client]bool, 100),
 		register:        make(chan *Client, 10),
 		unregister:      make(chan *Client, 10),
@@ -156,9 +153,10 @@ func (n NoticeResponse) MarshalJSON() ([]byte, error) {
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
 // It's a blocking operation, that stops only when the context get cancelled.
 // Use Start if you don't want to listen and serve right away.
-func (r *Relay) StartAndServe(ctx context.Context) error {
+// Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
+func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	go r.start(ctx)
-	server := &http.Server{Addr: r.Address, Handler: r}
+	server := &http.Server{Addr: address, Handler: r}
 	exitErr := make(chan error, 1)
 
 	go func() {
@@ -198,22 +196,28 @@ func (r *Relay) start(ctx context.Context) {
 
 		case client := <-r.register:
 			r.clients[client] = true
+
 			if err := r.OnConnect(client); err != nil {
-				client.send <- NoticeResponse{Message: err.Error()}
+				client.send(NoticeResponse{Message: err.Error()})
 			}
 
 		case client := <-r.unregister:
 			if _, ok := r.clients[client]; ok {
 				delete(r.clients, client)
-				close(client.send)
+				close(client.toSend)
 			}
 
 		case event := <-r.eventQueue:
-			if err := r.OnEvent(event.client, event.Event); err != nil {
-				event.client.send <- OkResponse{ID: event.Event.ID, Saved: false, Reason: err.Error()}
+			if _, ok := r.clients[event.client]; !ok {
+				// the client has been unregistered previously
 				continue
 			}
-			event.client.send <- OkResponse{ID: event.Event.ID, Saved: true}
+
+			if err := r.OnEvent(event.client, event.Event); err != nil {
+				event.client.send(OkResponse{ID: event.Event.ID, Saved: false, Reason: err.Error()})
+				continue
+			}
+			event.client.send(OkResponse{ID: event.Event.ID, Saved: true})
 
 			for client := range r.clients {
 				if client == event.client {
@@ -221,16 +225,21 @@ func (r *Relay) start(ctx context.Context) {
 				}
 
 				if match, subID := client.matchesSubscription(event.Event); match {
-					client.send <- EventResponse{ID: subID, Event: event.Event}
+					client.send(EventResponse{ID: subID, Event: event.Event})
 				}
 			}
 
 		case req := <-r.reqQueue:
+			if _, ok := r.clients[req.client]; !ok {
+				// the client has been unregistered previously
+				continue
+			}
+
 			events, err := r.OnFilters(req.ctx, req.client, req.Filters)
 			if err != nil {
 				if req.ctx.Err() == nil {
 					// the error was NOT caused by the user cancelling the request, so we send a CLOSE
-					req.client.send <- ClosedResponse{ID: req.ID, Reason: err.Error()}
+					req.client.send(ClosedResponse{ID: req.ID, Reason: err.Error()})
 				}
 
 				req.client.closeSubscription(req.ID)
@@ -238,10 +247,10 @@ func (r *Relay) start(ctx context.Context) {
 			}
 
 			for _, event := range events {
-				req.client.send <- EventResponse{ID: req.ID, Event: &event}
+				req.client.send(EventResponse{ID: req.ID, Event: &event})
 			}
 
-			req.client.send <- EoseResponse{ID: req.ID}
+			req.client.send(EoseResponse{ID: req.ID})
 		}
 	}
 }
@@ -253,14 +262,9 @@ func (r *Relay) kill() {
 
 	for client := range r.clients {
 		for _, sub := range client.Subscriptions {
-			client.send <- ClosedResponse{ID: sub.ID, Reason: "shutting down the relay"}
+			client.send(ClosedResponse{ID: sub.ID, Reason: "shutting down the relay"})
 		}
 	}
-
-	close(r.register)
-	close(r.unregister)
-	close(r.eventQueue)
-	close(r.reqQueue)
 }
 
 // ServeHTTP implements http.Handler interface, rejecting connections as specified
@@ -290,7 +294,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	client := &Client{IP: IP(req), relay: r, conn: conn, send: make(chan Response, 100)}
+	client := &Client{IP: IP(req), relay: r, conn: conn, toSend: make(chan Response, 100)}
 	r.register <- client
 
 	go client.write()
