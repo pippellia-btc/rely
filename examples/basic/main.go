@@ -8,6 +8,10 @@ import (
 	"github.com/pippellia-btc/rely"
 )
 
+/*
+The most basic example of a relay using rely.
+*/
+
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	go rely.HandleSignals(cancel)

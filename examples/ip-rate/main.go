@@ -5,12 +5,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"slices"
 
 	"github.com/pippellia-btc/rely"
+	"github.com/puzpuzpuz/xsync/v3"
 )
 
-var blackList = []string{"IP_123", "IP_abc"}
+/*
+This relay performs IP-based rate-limiting.
+When the same IP address tries to connect too many times, the relay rejects the
+http request before upgrading to websocket.
+*/
+
+var counter = xsync.NewMapOf[string, int]()
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -29,10 +35,16 @@ func main() {
 
 func BadIP(r rely.Stats, req *http.Request) error {
 	IP := rely.IP(req)
-	if slices.Contains(blackList, IP) {
-		return fmt.Errorf("IP is blacklisted")
+	n, ok := counter.Load(IP)
+	if !ok {
+		// this is a new IP
+		counter.Store(IP, 1)
 	}
 
-	blackList = append(blackList, IP)
+	if n > 100 {
+		// too much for me
+		return fmt.Errorf("rate-limited: slow there down chief")
+	}
+
 	return nil
 }
