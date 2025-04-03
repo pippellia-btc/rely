@@ -128,3 +128,49 @@ func parseID(data json.RawMessage) (string, *RequestError) {
 
 	return ID, nil
 }
+
+type Response = json.Marshaler
+
+type OkResponse struct {
+	ID     string
+	Saved  bool
+	Reason string
+}
+
+func (o OkResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]any{"OK", o.ID, o.Saved, o.Reason})
+}
+
+type ClosedResponse struct {
+	ID     string
+	Reason string
+}
+
+func (c ClosedResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]string{"CLOSED", c.ID, c.Reason})
+}
+
+type EventResponse struct {
+	ID    string
+	Event *nostr.Event
+}
+
+func (e EventResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]any{"EVENT", e.ID, e.Event})
+}
+
+type EoseResponse struct {
+	ID string
+}
+
+func (e EoseResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]string{"EOSE", e.ID})
+}
+
+type NoticeResponse struct {
+	Message string
+}
+
+func (n NoticeResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]string{"NOTICE", n.Message})
+}

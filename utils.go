@@ -16,16 +16,16 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-// BadID returns an error if the event's ID is invalid
-func BadID(c *Client, e *nostr.Event) error {
+// InvalidID returns an error if the event's ID is invalid
+func InvalidID(c *Client, e *nostr.Event) error {
 	if !e.CheckID() {
 		return ErrInvalidEventID
 	}
 	return nil
 }
 
-// BadSignature returns an error if the event's signature is invalid.
-func BadSignature(c *Client, e *nostr.Event) error {
+// InvalidSignature returns an error if the event's signature is invalid.
+func InvalidSignature(c *Client, e *nostr.Event) error {
 	match, err := e.CheckSignature()
 	if !match {
 		if err != nil {
@@ -34,6 +34,14 @@ func BadSignature(c *Client, e *nostr.Event) error {
 		return ErrInvalidEventSignature
 	}
 
+	return nil
+}
+
+// RecentFailure returns an error if a client registration has recently failed.
+func RecentFailure(s Stats, r *http.Request) error {
+	if time.Since(s.LastRegistrationFail()) < 2*time.Second {
+		return ErrOverloaded
+	}
 	return nil
 }
 
@@ -70,6 +78,7 @@ func logFilters(ctx context.Context, c *Client, f nostr.Filters) ([]nostr.Event,
 // Example usage: go rely.DisplayStats(ctx, relay)
 func DisplayStats(ctx context.Context, r *Relay) {
 	const statsLines = 9
+	var first = true
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -80,10 +89,14 @@ func DisplayStats(ctx context.Context, r *Relay) {
 			return
 
 		case <-ticker.C:
-			// clear stats, then print
-			fmt.Printf("\033[%dA", statsLines)
-			fmt.Print("\033[J")
+			if !first {
+				// clear stats, then print
+				fmt.Printf("\033[%dA", statsLines)
+				fmt.Print("\033[J")
+			}
+
 			r.PrintStats()
+			first = false
 		}
 	}
 }

@@ -27,8 +27,8 @@ func main() {
 	}
 }
 
-func BadIP(r *http.Request) error {
-	IP := rely.IP(r)
+func BadIP(r rely.Stats, req *http.Request) error {
+	IP := rely.IP(req)
 	if slices.Contains(blackList, IP) {
 		return fmt.Errorf("IP is blacklisted")
 	}

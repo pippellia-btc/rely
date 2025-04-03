@@ -1,11 +1,10 @@
 package tests
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"testing"
-	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -40,7 +39,7 @@ func randomEvent() nostr.Event {
 	event := nostr.Event{
 		CreatedAt: nostr.Timestamp(rg.Int64()),
 		Kind:      rg.Int(),
-		Tags:      randomSlice[nostr.Tag](100, randomTag),
+		Tags:      randomSlice(100, randomTag),
 	}
 
 	if rg.Float32() < clientFailProbability {
@@ -60,9 +59,9 @@ func randomFilter() nostr.Filter {
 	until := nostr.Timestamp(rg.Int64())
 
 	return nostr.Filter{
-		IDs:     randomSlice[string](100, randomString64),
-		Authors: randomSlice[string](100, randomString64),
-		Kinds:   randomSlice[int](100, rg.Int),
+		IDs:     randomSlice(100, randomString64),
+		Authors: randomSlice(100, randomString64),
+		Kinds:   randomSlice(100, rg.Int),
 		Tags:    randomTagMap(100),
 		Since:   &since,
 		Until:   &until,
@@ -111,49 +110,6 @@ func randomString(l int) string {
 
 func randomString64() string { return randomString(64) }
 
-func parseLabel(data []byte) (string, error) {
-	var array []json.RawMessage
-	if err := json.Unmarshal(data, &array); err != nil {
-		return "", fmt.Errorf("%w: %w", rely.ErrGeneric, err)
-	}
-
-	if len(array) < 2 {
-		return "", rely.ErrGeneric
-	}
-
-	var label string
-	if err := json.Unmarshal(array[0], &label); err != nil {
-		return "", fmt.Errorf("%w: %w", rely.ErrGeneric, err)
-	}
-
-	return label, nil
-}
-
-func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 14
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		case <-ticker.C:
-			// clear stats
-			fmt.Printf("\033[%dA", statsLines)
-			fmt.Print("\033[J")
-
-			fmt.Println("---------------- test ----------------")
-			fmt.Printf("total clients: %d\n", clientCounter.Load())
-			fmt.Printf("total events: %d\n", eventCounter.Load())
-			fmt.Printf("total filters: %d\n", filterCounter.Load())
-			r.PrintStats()
-		}
-	}
-}
-
 // fibonacci returns the n-th fibonacci number. It's used to simulate some meaningful work.
 func fibonacci(n int) int {
 	switch {
@@ -176,4 +132,31 @@ func BenchmarkFibonacci(b *testing.B) {
 			}
 		})
 	}
+}
+
+func validateResponseAfterEvent(data []byte) error {
+	label, _, err := rely.JSONArray(data)
+	if err != nil {
+		return fmt.Errorf("%w: data '%v'", err, string(data))
+	}
+
+	if label != "OK" {
+		return fmt.Errorf("label is not the expected 'OK': %v", string(data))
+	}
+
+	return nil
+}
+
+func validateResponseAfterReq(data []byte) error {
+	label, _, err := rely.JSONArray(data)
+	if err != nil {
+		return fmt.Errorf("%w: data '%v'", err, string(data))
+	}
+
+	expected := []string{"EOSE", "CLOSED", "EVENT"}
+	if !slices.Contains(expected, label) {
+		return fmt.Errorf("label is not among the expected labels %v: data %v", expected, string(data))
+	}
+
+	return nil
 }

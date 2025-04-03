@@ -2,7 +2,6 @@ package rely
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -12,21 +11,18 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+var ErrOverloaded = errors.New("the relay is overloaded, please try again later")
+
 const (
 	DefaultWriteWait      time.Duration = 10 * time.Second
 	DefaultPongWait       time.Duration = 60 * time.Second
 	DefaultPingPeriod     time.Duration = 45 * time.Second
-	DefaultMaxMessageSize int64         = 512000
+	DefaultMaxMessageSize int64         = 500000 // 0.5MB
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
 
 type Relay struct {
 	// the set of active clients
-	clients map[*Client]bool
+	clients map[*Client]struct{}
 
 	// the channel used to register/unregister a client
 	register   chan *Client
@@ -38,14 +34,35 @@ type Relay struct {
 	// the queue of REQs to be processed
 	reqQueue chan *ReqRequest
 
+	// the last time a client registration failed due to the register channel being full
+	lastRegistrationFail time.Time
+
 	RelayFunctions
-	WebsocketLimits
+	Websocket WebsocketOptions
+}
+
+func (r *Relay) enqueueEvent(event *EventRequest) *RequestError {
+	select {
+	case r.eventQueue <- event:
+		return nil
+	default:
+		return &RequestError{ID: event.Event.ID, Err: ErrOverloaded}
+	}
+}
+
+func (r *Relay) enqueueReq(req *ReqRequest) *RequestError {
+	select {
+	case r.reqQueue <- req:
+		return nil
+	default:
+		return &RequestError{ID: req.ID, Err: ErrOverloaded}
+	}
 }
 
 // RelayFunctions is a collection of functions the user of this framework can customize.
 type RelayFunctions struct {
 	// a connection is accepted if and only if err is nil. All functions MUST be thread-safe.
-	RejectConnection []func(*http.Request) error
+	RejectConnection []func(Stats, *http.Request) error
 
 	// an event is accepted if and only if err is nil. All functions MUST be thread-safe.
 	RejectEvent []func(*Client, *nostr.Event) error
@@ -72,15 +89,33 @@ func NewRelayFunctions() RelayFunctions {
 	}
 }
 
-type WebsocketLimits struct {
+// Stats exposes relay statistics useful for rejecting connections
+type Stats interface {
+	Clients() int
+	LastRegistrationFail() time.Time
+
+	ReqQueueLoad() float64
+	EventQueueLoad() float64
+}
+
+func (r *Relay) Clients() int                    { return len(r.clients) }
+func (r *Relay) LastRegistrationFail() time.Time { return r.lastRegistrationFail }
+func (r *Relay) ReqQueueLoad() float64           { return float64(len(r.reqQueue)) / float64(cap(r.reqQueue)) }
+func (r *Relay) EventQueueLoad() float64 {
+	return float64(len(r.eventQueue)) / float64(cap(r.eventQueue))
+}
+
+type WebsocketOptions struct {
+	Upgrader       websocket.Upgrader
 	WriteWait      time.Duration
 	PongWait       time.Duration
 	PingPeriod     time.Duration
 	MaxMessageSize int64
 }
 
-func NewWebsocketLimits() WebsocketLimits {
-	return WebsocketLimits{
+func NewWebsocketOptions() WebsocketOptions {
+	return WebsocketOptions{
+		Upgrader:       websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024},
 		WriteWait:      DefaultWriteWait,
 		PongWait:       DefaultPongWait,
 		PingPeriod:     DefaultPingPeriod,
@@ -91,63 +126,18 @@ func NewWebsocketLimits() WebsocketLimits {
 // NewRelay creates a new relay with default values and functions.
 func NewRelay() *Relay {
 	r := &Relay{
-		eventQueue:      make(chan *EventRequest, 10000),
-		reqQueue:        make(chan *ReqRequest, 10000),
-		clients:         make(map[*Client]bool, 100),
-		register:        make(chan *Client, 10),
-		unregister:      make(chan *Client, 10),
-		RelayFunctions:  NewRelayFunctions(),
-		WebsocketLimits: NewWebsocketLimits(),
+		eventQueue:     make(chan *EventRequest, 10000),
+		reqQueue:       make(chan *ReqRequest, 10000),
+		clients:        make(map[*Client]struct{}, 1000),
+		register:       make(chan *Client, 100),
+		unregister:     make(chan *Client, 100),
+		RelayFunctions: NewRelayFunctions(),
+		Websocket:      NewWebsocketOptions(),
 	}
 
-	r.RejectEvent = append(r.RejectEvent, BadID, BadSignature)
+	r.RejectConnection = append(r.RejectConnection, RecentFailure)
+	r.RejectEvent = append(r.RejectEvent, InvalidID, InvalidSignature)
 	return r
-}
-
-type Response = json.Marshaler
-
-type OkResponse struct {
-	ID     string
-	Saved  bool
-	Reason string
-}
-
-func (o OkResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]any{"OK", o.ID, o.Saved, o.Reason})
-}
-
-type ClosedResponse struct {
-	ID     string
-	Reason string
-}
-
-func (c ClosedResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]string{"CLOSED", c.ID, c.Reason})
-}
-
-type EventResponse struct {
-	ID    string
-	Event *nostr.Event
-}
-
-func (e EventResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]any{"EVENT", e.ID, e.Event})
-}
-
-type EoseResponse struct {
-	ID string
-}
-
-func (e EoseResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]string{"EOSE", e.ID})
-}
-
-type NoticeResponse struct {
-	Message string
-}
-
-func (n NoticeResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]string{"NOTICE", n.Message})
 }
 
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
@@ -155,7 +145,7 @@ func (n NoticeResponse) MarshalJSON() ([]byte, error) {
 // Use Start if you don't want to listen and serve right away.
 // Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
 func (r *Relay) StartAndServe(ctx context.Context, address string) error {
-	go r.start(ctx)
+	r.Start(ctx)
 	server := &http.Server{Addr: address, Handler: r}
 	exitErr := make(chan error, 1)
 
@@ -195,8 +185,7 @@ func (r *Relay) start(ctx context.Context) {
 			return
 
 		case client := <-r.register:
-			r.clients[client] = true
-
+			r.clients[client] = struct{}{}
 			if err := r.OnConnect(client); err != nil {
 				client.send(NoticeResponse{Message: err.Error()})
 			}
@@ -207,9 +196,20 @@ func (r *Relay) start(ctx context.Context) {
 				close(client.toSend)
 			}
 
+			// perform batch flushing to unregister as many clients as possible, which is important
+			// to avoid the [Client.read] goroutine to get stuck on the channel send in the defer.
+			n := len(r.unregister)
+			for i := 0; i < n; i++ {
+				client = <-r.unregister
+				if _, ok := r.clients[client]; ok {
+					delete(r.clients, client)
+					close(client.toSend)
+				}
+			}
+
 		case event := <-r.eventQueue:
 			if _, ok := r.clients[event.client]; !ok {
-				// the client has been unregistered previously
+				// the client has been unregistered
 				continue
 			}
 
@@ -231,7 +231,7 @@ func (r *Relay) start(ctx context.Context) {
 
 		case req := <-r.reqQueue:
 			if _, ok := r.clients[req.client]; !ok {
-				// the client has been unregistered previously
+				// the client has been unregistered
 				continue
 			}
 
@@ -270,13 +270,6 @@ func (r *Relay) kill() {
 // ServeHTTP implements http.Handler interface, rejecting connections as specified
 // and only handling WebSocket connections.
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	for _, reject := range r.RejectConnection {
-		if err := reject(req); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-	}
-
 	if req.Header.Get("Upgrade") == "websocket" {
 		r.HandleWebsocket(w, req)
 		return
@@ -288,15 +281,31 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // HandleWebsocket upgrades the http request to a websocket, creates a [Client], and registers it with the [Relay].
 // The client will then read and write to the websocket in two separate goroutines, preventing multiple readers/writers.
 func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
-	conn, err := upgrader.Upgrade(w, req, nil)
+	for _, reject := range r.RejectConnection {
+		if err := reject(r, req); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	}
+
+	conn, err := r.Websocket.Upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Printf("failed to upgrade to websocket: %v", err)
 		return
 	}
 
 	client := &Client{IP: IP(req), relay: r, conn: conn, toSend: make(chan Response, 100)}
-	r.register <- client
 
-	go client.write()
-	go client.read()
+	select {
+	case r.register <- client:
+		// successfully added client to registration queue, start reading and writing
+		go client.write()
+		go client.read()
+
+	default:
+		// if the registration queue is full, drop the connection to avoid overloading, and signal a failure
+		r.lastRegistrationFail = time.Now()
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "server is overloaded"))
+		conn.Close()
+	}
 }

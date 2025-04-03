@@ -29,7 +29,7 @@ type Client struct {
 }
 
 // Disconnect sends the client to the unregister queue, where it will be removed
-// from the active clients, which will later close the websocket connection.
+// from the active clients where its channel will be closed. This in turn will close the websocket connection.
 func (c *Client) Disconnect() {
 	c.relay.unregister <- c
 }
@@ -101,9 +101,9 @@ func (c *Client) read() {
 		c.conn.Close()
 	}()
 
-	c.conn.SetReadLimit(c.relay.MaxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(c.relay.PongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.PongWait)); return nil })
+	c.conn.SetReadLimit(c.relay.Websocket.MaxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(c.relay.Websocket.PongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.Websocket.PongWait)); return nil })
 
 	for {
 		_, data, err := c.conn.ReadMessage()
@@ -127,52 +127,58 @@ func (c *Client) read() {
 		case "EVENT":
 			event, err := ParseEventRequest(json)
 			if err != nil {
-				c.toSend <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
+				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
 			if err := c.rejectEvent(event); err != nil {
-				c.toSend <- OkResponse{ID: err.ID, Saved: false, Reason: err.Error()}
+				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
 			event.client = c
-			c.relay.eventQueue <- event
+			if err := c.relay.enqueueEvent(event); err != nil {
+				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+			}
 
 		case "REQ":
 			req, err := ParseReqRequest(json)
 			if err != nil {
-				c.toSend <- ClosedResponse{ID: err.ID, Reason: err.Error()}
+				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
 			if err := c.rejectReq(req); err != nil {
-				c.toSend <- ClosedResponse{ID: err.ID, Reason: err.Error()}
+				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				continue
+			}
+
+			if err := c.relay.enqueueReq(req); err != nil {
+				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
 			c.newSubscription(req)
-			c.relay.reqQueue <- req
 
 		case "CLOSE":
 			close, err := ParseCloseRequest(json)
 			if err != nil {
-				c.toSend <- NoticeResponse{Message: err.Error()}
+				c.send(NoticeResponse{Message: err.Error()})
 				continue
 			}
 
 			c.closeSubscription(close.ID)
 
 		default:
-			c.toSend <- NoticeResponse{Message: ErrUnsupportedType.Error()}
+			c.send(NoticeResponse{Message: ErrUnsupportedType.Error()})
 		}
 	}
 }
 
-// The client writes to the websocket whatever [Response] it receives in its toSend channel.
-// Periodically it will write [websocket.PingMessage]s.
+// The client writes to the websocket whatever [Response] it receives in its channel.
+// Periodically it writes [websocket.PingMessage]s.
 func (c *Client) write() {
-	ticker := time.NewTicker(c.relay.PingPeriod)
+	ticker := time.NewTicker(c.relay.Websocket.PingPeriod)
 	defer func() {
 		ticker.Stop()
 		c.conn.Close()
@@ -181,23 +187,33 @@ func (c *Client) write() {
 	for {
 		select {
 		case response, ok := <-c.toSend:
+			c.conn.SetWriteDeadline(time.Now().Add(c.relay.Websocket.WriteWait))
+
 			if !ok {
 				// the relay has closed the channel
-				c.conn.WriteMessage(websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				return
 			}
 
-			c.conn.SetWriteDeadline(time.Now().Add(c.relay.WriteWait))
 			if err := c.conn.WriteJSON(response); err != nil {
-				log.Printf("error when attempting to write: %v", err)
+				if websocket.IsUnexpectedCloseError(err,
+					websocket.CloseNormalClosure,
+					websocket.CloseGoingAway,
+					websocket.CloseAbnormalClosure) {
+					log.Printf("unexpected error when attemping to write to the IP %s: %v", c.IP, err)
+				}
 				return
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(c.relay.WriteWait))
+			c.conn.SetWriteDeadline(time.Now().Add(c.relay.Websocket.WriteWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("ping failed: %v", err)
+				if websocket.IsUnexpectedCloseError(err,
+					websocket.CloseNormalClosure,
+					websocket.CloseGoingAway,
+					websocket.CloseAbnormalClosure) {
+					log.Printf("unexpected error when attemping to ping the IP %s: %v", c.IP, err)
+				}
 				return
 			}
 		}
@@ -208,5 +224,6 @@ func (c *Client) send(r Response) {
 	select {
 	case c.toSend <- r:
 	default:
+		log.Printf("failed to send the client with IP %s the response %v: channel is full", c.IP, r)
 	}
 }
