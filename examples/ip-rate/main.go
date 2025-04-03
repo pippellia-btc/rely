@@ -34,7 +34,7 @@ func main() {
 	}
 }
 
-func BadIP(r rely.Stats, req *http.Request) error {
+func BadIP(s rely.Stats, req *http.Request) error {
 	IP := rely.IP(req)
 	if _, ok := counter[IP]; !ok {
 		// this is a new IP

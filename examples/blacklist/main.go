@@ -36,7 +36,7 @@ func main() {
 	}
 }
 
-func BadIP(r rely.Stats, req *http.Request) error {
+func BadIP(s rely.Stats, req *http.Request) error {
 	IP := rely.IP(req)
 	if slices.Contains(blacklist, IP) {
 		return fmt.Errorf("you are not welcome here")

@@ -34,6 +34,7 @@ func (c *Client) Disconnect() {
 	c.relay.unregister <- c
 }
 
+// closeSubscription closes the subscription with the provided ID, if present.
 func (c *Client) closeSubscription(ID string) {
 	for i, sub := range c.Subscriptions {
 		if sub.ID == ID {
@@ -45,6 +46,8 @@ func (c *Client) closeSubscription(ID string) {
 	}
 }
 
+// newSubscription creates the subscription associated with the provided [ReqRequest], and adds it to the client.
+// If the REQ has the same ID as an active subscription, it replaces it with a new one.
 func (c *Client) newSubscription(req *ReqRequest) {
 	sub := Subscription{ID: req.subID, Filters: req.Filters}
 	req.ctx, sub.cancel = context.WithCancel(context.Background())
@@ -65,6 +68,7 @@ func (c *Client) newSubscription(req *ReqRequest) {
 	}
 }
 
+// matchesSubscription returns which subscription of the client matches the provided event (if any).
 func (c *Client) matchesSubscription(event *nostr.Event) (match bool, ID string) {
 	for _, sub := range c.Subscriptions {
 		if sub.Filters.Match(event) {
@@ -74,6 +78,7 @@ func (c *Client) matchesSubscription(event *nostr.Event) (match bool, ID string)
 	return false, ""
 }
 
+// rejectReq wraps the relay RejectFilters method and makes them accessible to the client.
 func (c *Client) rejectReq(req *ReqRequest) *RequestError {
 	for _, reject := range c.relay.RejectFilters {
 		if err := reject(c, req.Filters); err != nil {
@@ -83,6 +88,7 @@ func (c *Client) rejectReq(req *ReqRequest) *RequestError {
 	return nil
 }
 
+// rejectEvent wraps the relay RejectEvent method and makes them accessible to the client.
 func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 	for _, reject := range c.relay.RejectEvent {
 		if err := reject(c, e.Event); err != nil {

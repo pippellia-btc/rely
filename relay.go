@@ -82,12 +82,12 @@ type Stats interface {
 	// Clients returns the number of active clients connected to the relay
 	Clients() int
 
-	// QueueLoad returns the ratio of the number of requests in the queue to its full capacity.
-	// It's a number between 0 and 1.
+	// QueueLoad returns the ratio of queued requests to total capacity,
+	// represented as a value between 0 and 1.
 	QueueLoad() float64
 
-	// LastRegistrationFail returns the last time a client failed to be added to the registration queue,
-	// which happens in periods of high load.
+	// LastRegistrationFail returns the last time a client failed to be added
+	// to the registration queue, which happens during periods of high load.
 	LastRegistrationFail() time.Time
 }
 
@@ -116,6 +116,7 @@ func NewWebsocketOptions() WebsocketOptions {
 // NewRelay creates a new relay with default values and functions.
 // In particular, the relay will reject connections in periods of high load,
 // and will reject invalid nostr events.
+// Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
 func NewRelay() *Relay {
 	r := &Relay{
 		queue:          make(chan Request, 10000),
