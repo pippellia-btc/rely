@@ -138,7 +138,7 @@ func clientMadness(
 		URL = "ws://" + URL
 	}
 
-	ticker := time.NewTicker(10 * time.Millisecond)
+	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -267,7 +267,7 @@ func (c *client) read(
 }
 
 func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 14
+	const statsLines = 13
 	var first = true
 
 	ticker := time.NewTicker(1 * time.Second)

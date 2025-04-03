@@ -28,11 +28,8 @@ type Relay struct {
 	register   chan *Client
 	unregister chan *Client
 
-	// the queue of EVENTs to be processed
-	eventQueue chan *EventRequest
-
-	// the queue of REQs to be processed
-	reqQueue chan *ReqRequest
+	// the queue for EVENTs and REQs
+	queue chan Request
 
 	// the last time a client registration failed due to the register channel being full
 	lastRegistrationFail time.Time
@@ -41,21 +38,12 @@ type Relay struct {
 	Websocket WebsocketOptions
 }
 
-func (r *Relay) enqueueEvent(event *EventRequest) *RequestError {
+func (r *Relay) enqueue(request Request) *RequestError {
 	select {
-	case r.eventQueue <- event:
+	case r.queue <- request:
 		return nil
 	default:
-		return &RequestError{ID: event.Event.ID, Err: ErrOverloaded}
-	}
-}
-
-func (r *Relay) enqueueReq(req *ReqRequest) *RequestError {
-	select {
-	case r.reqQueue <- req:
-		return nil
-	default:
-		return &RequestError{ID: req.ID, Err: ErrOverloaded}
+		return &RequestError{ID: request.ID(), Err: ErrOverloaded}
 	}
 }
 
@@ -89,21 +77,23 @@ func NewRelayFunctions() RelayFunctions {
 	}
 }
 
-// Stats exposes relay statistics useful for rejecting connections
+// Stats exposes relay statistics useful for rejecting connections during peaks of activity.
 type Stats interface {
+	// Clients returns the number of active clients connected to the relay
 	Clients() int
-	LastRegistrationFail() time.Time
 
-	ReqQueueLoad() float64
-	EventQueueLoad() float64
+	// QueueLoad returns the ratio of the number of requests in the queue to its full capacity.
+	// It's a number between 0 and 1.
+	QueueLoad() float64
+
+	// LastRegistrationFail returns the last time a client failed to be added to the registration queue,
+	// which happens in periods of high load.
+	LastRegistrationFail() time.Time
 }
 
 func (r *Relay) Clients() int                    { return len(r.clients) }
+func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
 func (r *Relay) LastRegistrationFail() time.Time { return r.lastRegistrationFail }
-func (r *Relay) ReqQueueLoad() float64           { return float64(len(r.reqQueue)) / float64(cap(r.reqQueue)) }
-func (r *Relay) EventQueueLoad() float64 {
-	return float64(len(r.eventQueue)) / float64(cap(r.eventQueue))
-}
 
 type WebsocketOptions struct {
 	Upgrader       websocket.Upgrader
@@ -124,11 +114,12 @@ func NewWebsocketOptions() WebsocketOptions {
 }
 
 // NewRelay creates a new relay with default values and functions.
+// In particular, the relay will reject connections in periods of high load,
+// and will reject invalid nostr events.
 func NewRelay() *Relay {
 	r := &Relay{
-		eventQueue:     make(chan *EventRequest, 10000),
-		reqQueue:       make(chan *ReqRequest, 10000),
-		clients:        make(map[*Client]struct{}, 1000),
+		queue:          make(chan Request, 10000),
+		clients:        make(map[*Client]struct{}, 100),
 		register:       make(chan *Client, 100),
 		unregister:     make(chan *Client, 100),
 		RelayFunctions: NewRelayFunctions(),
@@ -170,7 +161,7 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	return <-exitErr
 }
 
-// Start the relay in another goroutine, which can later be served using http.ListenAndServe.
+// Start the relay in a separate goroutine. The relay will later need to be served using http.ListenAndServe.
 // Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
 func (r *Relay) Start(ctx context.Context) {
 	go r.start(ctx)
@@ -197,8 +188,8 @@ func (r *Relay) start(ctx context.Context) {
 			}
 
 			// perform batch flushing to unregister as many clients as possible,
-			// which is important to avoid the [Client.read] to get stuck on the
-			// channel send in the defer when many disconnections occur at the same time.
+			// which is important to avoid the [Client.read] to get stuck
+			// on the channel send (in the defer) when many disconnections occur at the same time.
 			n := len(r.unregister)
 			for i := 0; i < n; i++ {
 				client = <-r.unregister
@@ -208,50 +199,50 @@ func (r *Relay) start(ctx context.Context) {
 				}
 			}
 
-		case event := <-r.eventQueue:
-			if _, ok := r.clients[event.client]; !ok {
+		case request := <-r.queue:
+			if _, ok := r.clients[request.From()]; !ok {
 				// the client has been unregistered
 				continue
 			}
 
-			if err := r.OnEvent(event.client, event.Event); err != nil {
-				event.client.send(OkResponse{ID: event.Event.ID, Saved: false, Reason: err.Error()})
-				continue
-			}
-			event.client.send(OkResponse{ID: event.Event.ID, Saved: true})
+			switch request := request.(type) {
+			case *EventRequest:
+				err := r.OnEvent(request.client, request.Event)
+				if err != nil {
+					request.client.send(OkResponse{ID: request.ID(), Saved: false, Reason: err.Error()})
+					continue
+				}
+				request.client.send(OkResponse{ID: request.ID(), Saved: true})
 
-			for client := range r.clients {
-				if client == event.client {
+				// send the event to all connected clients whose subscriptions match it
+				for client := range r.clients {
+					if client == request.client {
+						continue
+					}
+
+					if match, subID := client.matchesSubscription(request.Event); match {
+						client.send(EventResponse{ID: subID, Event: request.Event})
+					}
+				}
+
+			case *ReqRequest:
+				events, err := r.OnFilters(request.ctx, request.client, request.Filters)
+				if err != nil {
+					if request.ctx.Err() == nil {
+						// the error was NOT caused by the user cancelling the request, so we send a CLOSE
+						request.client.send(ClosedResponse{ID: request.ID(), Reason: err.Error()})
+					}
+
+					request.client.closeSubscription(request.ID())
 					continue
 				}
 
-				if match, subID := client.matchesSubscription(event.Event); match {
-					client.send(EventResponse{ID: subID, Event: event.Event})
-				}
-			}
-
-		case req := <-r.reqQueue:
-			if _, ok := r.clients[req.client]; !ok {
-				// the client has been unregistered
-				continue
-			}
-
-			events, err := r.OnFilters(req.ctx, req.client, req.Filters)
-			if err != nil {
-				if req.ctx.Err() == nil {
-					// the error was NOT caused by the user cancelling the request, so we send a CLOSE
-					req.client.send(ClosedResponse{ID: req.ID, Reason: err.Error()})
+				for _, event := range events {
+					request.client.send(EventResponse{ID: request.ID(), Event: &event})
 				}
 
-				req.client.closeSubscription(req.ID)
-				continue
+				request.client.send(EoseResponse{ID: request.ID()})
 			}
-
-			for _, event := range events {
-				req.client.send(EventResponse{ID: req.ID, Event: &event})
-			}
-
-			req.client.send(EoseResponse{ID: req.ID})
 		}
 	}
 }

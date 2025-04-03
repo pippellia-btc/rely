@@ -21,21 +21,34 @@ var (
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
 )
 
+// Request is a minimal interface that must be fullfilled by all requests that
+// should be processed in the [Relay.start].
+type Request interface {
+	ID() string
+	From() *Client
+}
+
 type EventRequest struct {
 	client *Client // the client where the request come from
 	Event  *nostr.Event
 }
 
+func (e *EventRequest) ID() string    { return e.Event.ID }
+func (e *EventRequest) From() *Client { return e.client }
+
 type ReqRequest struct {
-	ID  string          // the subscription ID
-	ctx context.Context // will be cancelled when the subscription is closed
+	subID string          // the subscription ID
+	ctx   context.Context // will be cancelled when the subscription is closed
 
 	client  *Client // the client where the request come from
 	Filters nostr.Filters
 }
 
+func (r *ReqRequest) ID() string    { return r.subID }
+func (r *ReqRequest) From() *Client { return r.client }
+
 type CloseRequest struct {
-	ID string // the subscription ID
+	subID string // the subscription ID
 }
 
 type RequestError struct {
@@ -104,7 +117,7 @@ func ParseReqRequest(array []json.RawMessage) (*ReqRequest, *RequestError) {
 		}
 	}
 
-	return &ReqRequest{ID: ID, Filters: filters}, nil
+	return &ReqRequest{subID: ID, Filters: filters}, nil
 }
 
 // ParseCloseRequest parses the json array into an [CloseRequest], validating the subscription ID.
@@ -113,7 +126,7 @@ func ParseCloseRequest(array []json.RawMessage) (*CloseRequest, *RequestError) {
 	if err != nil {
 		return nil, err
 	}
-	return &CloseRequest{ID: ID}, nil
+	return &CloseRequest{subID: ID}, nil
 }
 
 func parseID(data json.RawMessage) (string, *RequestError) {

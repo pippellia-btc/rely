@@ -133,7 +133,7 @@ func TestParseToReqRequest(t *testing.T) {
 		{
 			name:     "valid",
 			data:     []byte(`["REQ", "abcd", {"kinds": [1]}, {"kinds": [30023 ], "#d": ["buteko",    "batuke"]}]`),
-			expected: &ReqRequest{ID: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
+			expected: &ReqRequest{subID: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
 		},
 	}
 
@@ -181,7 +181,7 @@ func TestParseToCloseRequest(t *testing.T) {
 		{
 			name:     "valid",
 			data:     []byte(`["CLOSE", "abcd"]`),
-			expected: &CloseRequest{ID: "abcd"},
+			expected: &CloseRequest{subID: "abcd"},
 		},
 	}
 
