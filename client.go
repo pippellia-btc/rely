@@ -48,7 +48,6 @@ func (c *Client) closeSubscription(ID string) {
 func (c *Client) newSubscription(req *ReqRequest) {
 	sub := Subscription{ID: req.ID, Filters: req.Filters}
 	req.ctx, sub.cancel = context.WithCancel(context.Background())
-	req.client = c
 
 	pos := slices.IndexFunc(c.Subscriptions, func(s Subscription) bool {
 		return s.ID == req.ID
@@ -77,7 +76,7 @@ func (c *Client) matchesSubscription(event *nostr.Event) (match bool, ID string)
 
 func (c *Client) rejectReq(req *ReqRequest) *RequestError {
 	for _, reject := range c.relay.RejectFilters {
-		if err := reject(req.ctx, req.client, req.Filters); err != nil {
+		if err := reject(c, req.Filters); err != nil {
 			return &RequestError{ID: req.ID, Err: err}
 		}
 	}
@@ -86,7 +85,7 @@ func (c *Client) rejectReq(req *ReqRequest) *RequestError {
 
 func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 	for _, reject := range c.relay.RejectEvent {
-		if err := reject(e.client, e.Event); err != nil {
+		if err := reject(c, e.Event); err != nil {
 			return &RequestError{ID: e.Event.ID, Err: err}
 		}
 	}
@@ -153,6 +152,7 @@ func (c *Client) read() {
 				continue
 			}
 
+			req.client = c
 			if err := c.relay.enqueueReq(req); err != nil {
 				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
 				continue

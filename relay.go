@@ -68,7 +68,7 @@ type RelayFunctions struct {
 	RejectEvent []func(*Client, *nostr.Event) error
 
 	// the filters are accepted if and only if err is nil. All functions MUST be thread-safe.
-	RejectFilters []func(context.Context, *Client, nostr.Filters) error
+	RejectFilters []func(*Client, nostr.Filters) error
 
 	// the action the relay performs after establishing a connection with the specified client.
 	OnConnect func(*Client) error
@@ -196,8 +196,9 @@ func (r *Relay) start(ctx context.Context) {
 				close(client.toSend)
 			}
 
-			// perform batch flushing to unregister as many clients as possible, which is important
-			// to avoid the [Client.read] goroutine to get stuck on the channel send in the defer.
+			// perform batch flushing to unregister as many clients as possible,
+			// which is important to avoid the [Client.read] to get stuck on the
+			// channel send in the defer when many disconnections occur at the same time.
 			n := len(r.unregister)
 			for i := 0; i < n; i++ {
 				client = <-r.unregister
