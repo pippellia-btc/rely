@@ -48,9 +48,7 @@ func Query(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event,
 How do you test a relay framework?
 You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/main/tests/random_test.go) with thousands of connections, random events, random filters, random disconnects, and see what breaks. Then you fix it and repeat. I still expect bugs, so please open a well-written issue and I'll fix it.
 
-Here is a video showing rely handling up to 4000 concurrent clients, each sending one EVENT/REQ/s, all while handling 100 http requests/s.
-
-
+[Here is a video](https://m.primal.net/QECM.mp4) showing rely handling up to 3500 concurrent clients, each sending one EVENT/REQ/s, all while handling 100 new http requests/s.
 
 ## FAQs
 - Wen AUTH?
