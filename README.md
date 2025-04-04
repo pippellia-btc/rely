@@ -1,19 +1,20 @@
 # rely
 A framework for building super custom relays you can *rely* on.
+Designed to be simple and stable. About 1000 lines of code.
 
 ## Why another framework
 I started this new framework inspired by [khatru](https://github.com/fiatjaf/khatru) but also frustrated by it.
 Despite its initial simplicity, achieving deep customization means dealing with (and understanding) the khatru relay structure.
-For the brave among you, here is the [khatru relay](https://github.com/fiatjaf/khatru/blob/master/relay.go#L54), and for the even braver, here is the almighty [HandleWebsocket](https://github.com/fiatjaf/khatru/blob/master/handlers.go#L54).
+For the brave among you, here is the [khatru relay struct](https://github.com/fiatjaf/khatru/blob/master/relay.go#L54), and for the even braver, here is the almighty [HandleWebsocket method](https://github.com/fiatjaf/khatru/blob/master/handlers.go#L54).
 
 As a [grug brain dev](https://grugbrain.dev/) myself, I believe that complexity kills good software.
-Instead, I've built a simple architecture that doesn't introduce unnecessary abstractions:
+Instead, I've built a simple architecture (see `/docs`) that doesn't introduce unnecessary abstractions:
 There is a relay, there are clients connecting to it, each with their own subscriptions. That's it.
 
-Also, rely is [properly tested]().
+Also, rely is [properly tested](#well-tested).
 
 ## Simple to use
-Like khatru, rely remains simple to use. Check out the `/example/` directory for more.
+Like khatru, rely is simple to use. Check out the `/example` directory for more.
 
 ```golang
 func main() {
@@ -45,15 +46,15 @@ func Query(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event,
 
 ## Well tested
 How do you test a relay framework?
-You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/main/tests/random_test.go) with thousands of connections, random events, random filters, random disconnects, and see what breaks. Then you fix it and repeat.
+You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/main/tests/random_test.go) with thousands of connections, random events, random filters, random disconnects, and see what breaks. Then you fix it and repeat. I still expect bugs, so please open a well-written issue and I'll fix it.
 
 Here is a video showing rely handling up to 4000 concurrent clients, each sending one EVENT/REQ/s, all while handling 100 http requests/s.
 
-I still expect there to be bugs, so please open a well-written issue and I'll fix it.
+
 
 ## FAQs
 - Wen AUTH?
-    - it's coming, yes.
+    - It's coming, yes.
 
 - Why did you chose for `relay.OnFilters` instead of `relay.OnFilter`? After all it's easier to deal with one filter at the time.
 
