@@ -38,6 +38,8 @@ type Relay struct {
 	Websocket WebsocketOptions
 }
 
+// enqueue tries to add the request to the queue of the relay.
+// If it's full, it return the error [ErrOverloaded]
 func (r *Relay) enqueue(request Request) *RequestError {
 	select {
 	case r.queue <- request:
@@ -114,8 +116,7 @@ func NewWebsocketOptions() WebsocketOptions {
 }
 
 // NewRelay creates a new relay with default values and functions.
-// In particular, the relay will reject connections in periods of high load,
-// and will reject invalid nostr events.
+// In particular, the relay rejects connections in periods of high load, and rejects invalid nostr events.
 // Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
 func NewRelay() *Relay {
 	r := &Relay{
