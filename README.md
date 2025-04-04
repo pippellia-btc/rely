@@ -78,4 +78,5 @@ Here is a video showing rely handling up to 4000 concurrent clients, each sendin
 
 - Wen `<insert feature you like>`?
     - Open a well written issue and make a case for why it should be added. Keep in mind that, being a [grug brain dev](https://grugbrain.dev/), I believe:
-    > best weapon against complexity spirit demon is magic word: "no"
+
+> best weapon against complexity spirit demon is magic word: "no"
