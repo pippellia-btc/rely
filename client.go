@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -26,12 +27,18 @@ type Client struct {
 	relay  *Relay
 	conn   *websocket.Conn
 	toSend chan Response
+
+	// a boolean that signals if a client has started the process of unregistering.
+	isUnregistering atomic.Bool
 }
 
-// Disconnect sends the client to the unregister queue, where it will be removed
-// from the active clients where its channel will be closed. This in turn will close the websocket connection.
+// Disconnect sends the client to the unregister queue if it's not already being unregistered.
+// There it will be removed from the active clients and its channel will be closed.
+// This in turn will close the websocket connection.
 func (c *Client) Disconnect() {
-	c.relay.unregister <- c
+	if c.isUnregistering.CompareAndSwap(false, true) {
+		c.relay.unregister <- c
+	}
 }
 
 // closeSubscription closes the subscription with the provided ID, if present.
@@ -102,7 +109,7 @@ func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 // It manages creation and cancellation of subscriptions, and sends the request to the [Relay] to be processed.
 func (c *Client) read() {
 	defer func() {
-		c.relay.unregister <- c
+		c.Disconnect()
 		c.conn.Close()
 	}()
 
@@ -227,6 +234,10 @@ func (c *Client) write() {
 }
 
 func (c *Client) send(r Response) {
+	if c.isUnregistering.Load() {
+		return
+	}
+
 	select {
 	case c.toSend <- r:
 	default:

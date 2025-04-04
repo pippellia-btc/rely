@@ -21,6 +21,7 @@ var (
 	clientCounter      atomic.Int32
 	eventCounter       atomic.Int32
 	filterCounter      atomic.Int32
+	abnormalClosures   atomic.Int32
 )
 
 const (
@@ -77,6 +78,7 @@ func dummyOnEvent(c *rely.Client, e *nostr.Event) error {
 	eventCounter.Add(1)
 
 	if rg.Float32() < relayFailProbability {
+		c.Disconnect()
 		return fmt.Errorf("failed")
 	}
 
@@ -88,6 +90,7 @@ func dummyOnFilters(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nos
 	filterCounter.Add(int32(len(f)))
 
 	if rg.Float32() < relayFailProbability {
+		c.Disconnect()
 		return nil, fmt.Errorf("failed")
 	}
 
@@ -138,7 +141,7 @@ func clientMadness(
 		URL = "ws://" + URL
 	}
 
-	ticker := time.NewTicker(20 * time.Millisecond)
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -207,9 +210,7 @@ func (c *client) write(
 
 			c.conn.SetWriteDeadline(time.Now().Add(rely.DefaultWriteWait))
 			if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				if websocket.IsUnexpectedCloseError(err,
-					websocket.CloseNormalClosure,
-					websocket.CloseTryAgainLater) {
+				if IsBadError(err) {
 					c.errChan <- fmt.Errorf("failed to write: %w", err)
 				}
 				return
@@ -218,9 +219,7 @@ func (c *client) write(
 		case <-pingTicker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(rely.DefaultWriteWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				if websocket.IsUnexpectedCloseError(err,
-					websocket.CloseNormalClosure,
-					websocket.CloseTryAgainLater) {
+				if IsBadError(err) {
 					c.errChan <- fmt.Errorf("failed to ping: %w", err)
 				}
 				return
@@ -250,9 +249,7 @@ func (c *client) read(
 		default:
 			_, data, err := c.conn.ReadMessage()
 			if err != nil {
-				if websocket.IsUnexpectedCloseError(err,
-					websocket.CloseNormalClosure,
-					websocket.CloseTryAgainLater) {
+				if IsBadError(err) {
 					c.errChan <- fmt.Errorf("failed to read: %w", err)
 				}
 				return
@@ -267,7 +264,7 @@ func (c *client) read(
 }
 
 func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 13
+	const statsLines = 14
 	var first = true
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -288,11 +285,29 @@ func displayStats(ctx context.Context, r *rely.Relay) {
 
 			fmt.Println("---------------- test -----------------")
 			fmt.Printf("total http requests: %d\n", httpRequestCounter.Load())
+			fmt.Printf("abnormal closures: %d\n", abnormalClosures.Load())
 			fmt.Printf("total clients: %d\n", clientCounter.Load())
 			fmt.Printf("processed events: %d\n", eventCounter.Load())
 			fmt.Printf("processed filters: %d\n", filterCounter.Load())
 			r.PrintStats()
 			first = false
 		}
+	}
+}
+
+func IsBadError(err error) bool {
+	switch {
+	case websocket.IsCloseError(err, websocket.CloseAbnormalClosure):
+		abnormalClosures.Add(1)
+		return false
+
+	case websocket.IsUnexpectedCloseError(err,
+		websocket.CloseNormalClosure,
+		websocket.CloseTryAgainLater,
+		websocket.CloseAbnormalClosure):
+		return true
+
+	default:
+		return false
 	}
 }

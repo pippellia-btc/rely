@@ -195,6 +195,7 @@ func (r *Relay) start(ctx context.Context) {
 			for i := 0; i < n; i++ {
 				client = <-r.unregister
 				if _, ok := r.clients[client]; ok {
+					client.isUnregistering.CompareAndSwap(false, true)
 					delete(r.clients, client)
 					close(client.toSend)
 				}
