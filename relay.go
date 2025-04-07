@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -31,8 +32,8 @@ type Relay struct {
 	// the queue for EVENTs and REQs
 	queue chan Request
 
-	// the last time a client registration failed due to the register channel being full
-	lastRegistrationFail time.Time
+	// the last (unix) time a client registration failed due to the register channel being full
+	lastRegistrationFail atomic.Int64
 
 	RelayFunctions
 	Websocket WebsocketOptions
@@ -95,7 +96,7 @@ type Stats interface {
 
 func (r *Relay) Clients() int                    { return len(r.clients) }
 func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
-func (r *Relay) LastRegistrationFail() time.Time { return r.lastRegistrationFail }
+func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
 
 type WebsocketOptions struct {
 	Upgrader       websocket.Upgrader
@@ -298,7 +299,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 
 	default:
 		// if the registration queue is full, drop the connection to avoid overloading, and signal a failure
-		r.lastRegistrationFail = time.Now()
+		r.lastRegistrationFail.Store(time.Now().Unix())
 		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "server is overloaded"))
 		conn.Close()
 	}
