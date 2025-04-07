@@ -7,7 +7,7 @@ I started this new framework inspired by [khatru](https://github.com/fiatjaf/kha
 Despite its initial simplicity, achieving deep customization means dealing with (and understanding) the khatru relay structure.
 For the brave among you, here is the [khatru relay struct](https://github.com/fiatjaf/khatru/blob/master/relay.go#L54), and for the even braver, here is the almighty [HandleWebsocket method](https://github.com/fiatjaf/khatru/blob/master/handlers.go#L54).
 
-As a [grug brain dev](https://grugbrain.dev/) myself, I believe that complexity kills good software.
+As a [grug brain dev](https://grugbrain.dev/), I believe that complexity kills good software.
 Instead, I've built a simple architecture (see `/docs`) that doesn't introduce unnecessary abstractions:
 There is a relay, there are clients connecting to it, each with their own subscriptions. That's it.
 
@@ -46,13 +46,12 @@ func Query(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event,
 
 ## Well tested
 How do you test a relay framework?
+
 You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/main/tests/random_test.go) with thousands of connections, random events, random filters, random disconnects, and see what breaks. Then you fix it and repeat. I still expect bugs, so please open a well-written issue and I'll fix it.
 
 [Here is a video](https://m.primal.net/QECM.mp4) showing rely handling up to 3500 concurrent clients, each sending one EVENT/REQ/s, all while handling 100 new http requests/s.
 
 ## FAQs
-- Wen AUTH?
-    - It's coming, yes.
 
 - Why did you chose for `relay.OnFilters` instead of `relay.OnFilter`? After all it's easier to deal with one filter at the time.
 
@@ -61,7 +60,7 @@ You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/
         // TooMany rejects the REQ if the client has too many open filters.
         func TooMany(client *rely.Client, filters nostr.Filters) error {
             total := len(filters)
-            for _, sub := range client.Subscriptions {
+            for _, sub := range client.Subscriptions() {
                 total += len(sub.Filters)
             }
 
