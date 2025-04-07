@@ -20,6 +20,13 @@ type Subscription struct {
 	Filters nostr.Filters
 }
 
+// newSubscription creates the subscription associated with the provided [ReqRequest].
+func newSubscription(req *ReqRequest) Subscription {
+	sub := Subscription{ID: req.subID, Filters: req.Filters}
+	req.ctx, sub.cancel = context.WithCancel(context.Background())
+	return sub
+}
+
 // Client is a middleman between the websocket connection and the [Relay].
 // It's responsible for reading and validating the requests, and for writing the responses
 // if they satisfy at least one [Subscription].
@@ -108,26 +115,24 @@ func (c *Client) closeSubscription(ID string) {
 	}
 }
 
-// newSubscription creates the subscription associated with the provided [ReqRequest], and adds it to the client.
-// If the REQ has the same ID as an active subscription, it replaces it with a new one.
-func (c *Client) newSubscription(req *ReqRequest) {
-	sub := Subscription{ID: req.subID, Filters: req.Filters}
-	req.ctx, sub.cancel = context.WithCancel(context.Background())
-
+// openSubscription registers the provided subscription with the client.
+// If a subscription with the same ID already exists, the existing subscription is canceled
+// and replaced with the new one.
+func (c *Client) openSubscription(sub Subscription) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	pos := slices.IndexFunc(c.subscriptions, func(s Subscription) bool {
-		return s.ID == req.subID
+		return s.ID == sub.ID
 	})
 
 	switch pos {
 	case -1:
-		// the REQ has an ID that was never seen, so we add a new subscription
+		// the subscription has an ID that was never seen, so we add a new subscription
 		c.subscriptions = append(c.subscriptions, sub)
 
 	default:
-		// the REQ is overwriting an existing subscription, so we cancel and remove the old for the new
+		// the subscription is overwriting an existing subscription, so we cancel and remove the old for the new
 		c.subscriptions[pos].cancel()
 		c.subscriptions[pos] = sub
 	}
@@ -256,12 +261,14 @@ func (c *Client) read() {
 			}
 
 			req.client = c
+			sub := newSubscription(req)
+
 			if err := c.relay.enqueue(req); err != nil {
 				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
-			c.newSubscription(req)
+			c.openSubscription(sub)
 
 		case "CLOSE":
 			close, err := ParseCloseRequest(json)
