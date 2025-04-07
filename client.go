@@ -80,6 +80,8 @@ func (c *Client) Pubkey() *string {
 }
 
 // SendAuthChallenge sends the client a newly generated AUTH challenge.
+// This resets the authentication state: any previously authenticated pubkey is cleared,
+// and a new challenge is generated and sent.
 func (c *Client) SendAuthChallenge() {
 	challenge := make([]byte, 16)
 	rand.Read(challenge)
@@ -87,6 +89,7 @@ func (c *Client) SendAuthChallenge() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.pubkey = nil
 	c.challenge = hex.EncodeToString(challenge)
 	c.send(AuthResponse{Challenge: c.challenge})
 }
