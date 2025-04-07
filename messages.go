@@ -11,7 +11,7 @@ import (
 
 var (
 	ErrGeneric         = errors.New(`the request must be a JSON array with a length greater than two`)
-	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ' and 'CLOSE'`)
+	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ', 'CLOSE'and 'AUTH'`)
 
 	ErrInvalidEventRequest   = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
 	ErrInvalidEventID        = errors.New(`invalid event ID`)
@@ -19,6 +19,11 @@ var (
 
 	ErrInvalidReqRequest     = errors.New(`a REQ request must follow this format: ['REQ', {subscription_id}, {filter1}, {filter2}, ...]`)
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
+
+	ErrInvalidAuthRequest   = errors.New(`an AUTH request must follow this format: ['AUTH', {event_JSON}]`)
+	ErrInvalidTimestamp     = errors.New(`createdAt must be within one minute from the current time`)
+	ErrInvalidAuthChallenge = errors.New(`invalid AUTH challenge`)
+	ErrInvalidAuthKind      = errors.New(`invalid AUTH kind`)
 )
 
 // Request is a minimal interface that must be fullfilled by all requests that
@@ -49,6 +54,10 @@ func (r *ReqRequest) From() *Client { return r.client }
 
 type CloseRequest struct {
 	subID string // the subscription ID
+}
+
+type AuthRequest struct {
+	*nostr.Event
 }
 
 type RequestError struct {
@@ -97,6 +106,16 @@ func ParseEventRequest(array []json.RawMessage) (*EventRequest, *RequestError) {
 	}
 
 	return &EventRequest{Event: &event}, nil
+}
+
+// ParseAuthRequest parses the json array into an [AuthRequest].
+func ParseAuthRequest(array []json.RawMessage) (*AuthRequest, *RequestError) {
+	var auth nostr.Event
+	if err := json.Unmarshal(array[0], &auth); err != nil {
+		return nil, &RequestError{Err: fmt.Errorf("%w: %w", ErrInvalidAuthRequest, err)}
+	}
+
+	return &AuthRequest{Event: &auth}, nil
 }
 
 // ParseReqRequest parses the json array into an [ReqRequest], validating the subscription ID.
@@ -186,4 +205,12 @@ type NoticeResponse struct {
 
 func (n NoticeResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string{"NOTICE", n.Message})
+}
+
+type AuthResponse struct {
+	Challenge string
+}
+
+func (a AuthResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]string{"AUTH", a.Challenge})
 }
