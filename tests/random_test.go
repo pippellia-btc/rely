@@ -29,7 +29,7 @@ const (
 	clientFailProbability       float32 = 0.01
 	relayFailProbability        float32 = 0.01
 
-	TestDuration = 100 * time.Second
+	TestDuration = 500 * time.Second
 )
 
 func TestRandom(t *testing.T) {
@@ -134,7 +134,7 @@ func clientMadness(
 	URL string) {
 
 	// decrease timeout to trigger mass disconnections at the end of the test
-	ctx, cancel := context.WithTimeout(ctx, TestDuration*95/100)
+	ctx, cancel := context.WithTimeout(ctx, TestDuration-5*time.Second)
 	defer cancel()
 
 	if !strings.HasPrefix(URL, "ws://") {
