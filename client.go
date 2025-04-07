@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -21,6 +22,7 @@ type Subscription struct {
 // It's responsible for reading and validating the requests, and for writing the responses
 // if they satisfy at least one [Subscription].
 type Client struct {
+	mu            sync.RWMutex
 	IP            string
 	Subscriptions []Subscription
 
@@ -43,6 +45,9 @@ func (c *Client) Disconnect() {
 
 // closeSubscription closes the subscription with the provided ID, if present.
 func (c *Client) closeSubscription(ID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	for i, sub := range c.Subscriptions {
 		if sub.ID == ID {
 			// cancels the context of the associated REQ and removes the subscription from the client
@@ -58,6 +63,9 @@ func (c *Client) closeSubscription(ID string) {
 func (c *Client) newSubscription(req *ReqRequest) {
 	sub := Subscription{ID: req.subID, Filters: req.Filters}
 	req.ctx, sub.cancel = context.WithCancel(context.Background())
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	pos := slices.IndexFunc(c.Subscriptions, func(s Subscription) bool {
 		return s.ID == req.subID
@@ -77,6 +85,9 @@ func (c *Client) newSubscription(req *ReqRequest) {
 
 // matchesSubscription returns which subscription of the client matches the provided event (if any).
 func (c *Client) matchesSubscription(event *nostr.Event) (match bool, ID string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	for _, sub := range c.Subscriptions {
 		if sub.Filters.Match(event) {
 			return true, sub.ID
