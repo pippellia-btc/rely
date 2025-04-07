@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 )
@@ -237,6 +238,49 @@ func TestParseAuthRequest(t *testing.T) {
 
 			if !reflect.DeepEqual(auth, test.expected) {
 				t.Fatalf("expected event request %v, got %v", test.expected, auth)
+			}
+		})
+	}
+}
+
+func TestRejectAuth(t *testing.T) {
+	tests := []struct {
+		name     string
+		auth     *AuthRequest
+		expected *RequestError
+	}{
+		{
+			name:     "invalid kind",
+			auth:     &AuthRequest{Event: &nostr.Event{Kind: 69, ID: "abc", CreatedAt: nostr.Now()}},
+			expected: &RequestError{ID: "abc", Err: ErrInvalidAuthKind},
+		},
+		{
+			name:     "too much into the past",
+			auth:     &AuthRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now() - nostr.Timestamp(time.Minute+1)}},
+			expected: &RequestError{ID: "abc", Err: ErrInvalidTimestamp},
+		},
+		{
+			name:     "too much into the future",
+			auth:     &AuthRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now() + nostr.Timestamp(time.Minute+1)}},
+			expected: &RequestError{ID: "abc", Err: ErrInvalidTimestamp},
+		},
+		{
+			name:     "no challenge tag",
+			auth:     &AuthRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now()}},
+			expected: &RequestError{ID: "abc", Err: ErrInvalidAuthChallenge},
+		},
+		{
+			name:     "challenge is different",
+			auth:     &AuthRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", "different"}}}},
+			expected: &RequestError{ID: "abc", Err: ErrInvalidAuthChallenge},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &Client{challenge: "whatever"}
+			if err := client.rejectAuth(test.auth); !errors.Is(err, test.expected) {
+				t.Fatalf("expected error %v, got %v", test.expected, err)
 			}
 		})
 	}

@@ -2,6 +2,8 @@ package rely
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"slices"
 	"sync"
@@ -26,6 +28,10 @@ type Client struct {
 	ip            string
 	subscriptions []Subscription
 
+	// NIP-42
+	pubkey    *string
+	challenge string
+
 	relay  *Relay
 	conn   *websocket.Conn
 	toSend chan Response
@@ -45,6 +51,37 @@ func (c *Client) Subscriptions() []Subscription {
 	subs := make([]Subscription, len(c.subscriptions))
 	copy(subs, c.subscriptions)
 	return subs
+}
+
+func (c *Client) setPubkey(pubkey string) {
+	c.mu.Lock()
+	c.pubkey = &pubkey
+	c.mu.Unlock()
+}
+
+// Pubkey returns the pubkey the client used to authenticate with NIP-42. If the client didn't auth, it returns nil.
+// To initiate the authentication, call [Client.SendAuthChallenge].
+func (c *Client) Pubkey() *string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.pubkey == nil {
+		return nil
+	}
+	pubkey := *c.pubkey
+	return &pubkey
+}
+
+// SendAuthChallenge sends the client a newly generated AUTH challenge.
+func (c *Client) SendAuthChallenge() {
+	challenge := make([]byte, 16)
+	rand.Read(challenge)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.challenge = hex.EncodeToString(challenge)
+	c.send(AuthResponse{Challenge: c.challenge})
 }
 
 // Disconnect sends the client to the unregister queue if it's not already being unregistered.
@@ -129,6 +166,35 @@ func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 	return nil
 }
 
+// rejectAuth rejects bad AUTH requests coming from clients. Auth is valid iff err == nil.
+func (c *Client) rejectAuth(auth *AuthRequest) *RequestError {
+	if auth.Event.Kind != nostr.KindClientAuthentication {
+		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthKind}
+	}
+
+	if time.Since(auth.CreatedAt.Time()).Abs() > time.Minute {
+		return &RequestError{ID: auth.ID, Err: ErrInvalidTimestamp}
+	}
+
+	challenge := auth.Tags.Find("challenge")
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if challenge == nil || challenge[1] != c.challenge {
+		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
+	}
+
+	if err := InvalidID(c, auth.Event); err != nil {
+		return &RequestError{ID: auth.ID, Err: err}
+	}
+
+	if err := InvalidSignature(c, auth.Event); err != nil {
+		return &RequestError{ID: auth.ID, Err: err}
+	}
+
+	return nil
+}
+
 // The client reads from the websocket and parses the data into the appropriate structure (e.g. [ReqRequest]).
 // It manages creation and cancellation of subscriptions, and sends the request to the [Relay] to be processed.
 func (c *Client) read() {
@@ -205,6 +271,21 @@ func (c *Client) read() {
 			}
 
 			c.closeSubscription(close.subID)
+
+		case "AUTH":
+			auth, err := ParseAuthRequest(json)
+			if err != nil {
+				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+				continue
+			}
+
+			if err := c.rejectAuth(auth); err != nil {
+				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+				continue
+			}
+
+			c.setPubkey(auth.PubKey)
+			c.send(OkResponse{ID: auth.ID, Saved: true})
 
 		default:
 			c.send(NoticeResponse{Message: ErrUnsupportedType.Error()})
