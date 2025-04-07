@@ -255,7 +255,7 @@ func (r *Relay) kill() {
 	defer log.Println("relay stopped")
 
 	for client := range r.clients {
-		for _, sub := range client.Subscriptions {
+		for _, sub := range client.subscriptions {
 			client.send(ClosedResponse{ID: sub.ID, Reason: "shutting down the relay"})
 		}
 	}
@@ -288,7 +288,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	client := &Client{IP: IP(req), relay: r, conn: conn, toSend: make(chan Response, 100)}
+	client := &Client{ip: IP(req), relay: r, conn: conn, toSend: make(chan Response, 100)}
 
 	select {
 	case r.register <- client:

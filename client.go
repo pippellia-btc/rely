@@ -23,8 +23,8 @@ type Subscription struct {
 // if they satisfy at least one [Subscription].
 type Client struct {
 	mu            sync.RWMutex
-	IP            string
-	Subscriptions []Subscription
+	ip            string
+	subscriptions []Subscription
 
 	relay  *Relay
 	conn   *websocket.Conn
@@ -32,6 +32,19 @@ type Client struct {
 
 	// a boolean that signals if a client has started the process of unregistering.
 	isUnregistering atomic.Bool
+}
+
+// IP returns the IP address of the client
+func (c *Client) IP() string { return c.ip }
+
+// Subscriptions returns the currently active subscriptions of the client
+func (c *Client) Subscriptions() []Subscription {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	subs := make([]Subscription, len(c.subscriptions))
+	copy(subs, c.subscriptions)
+	return subs
 }
 
 // Disconnect sends the client to the unregister queue if it's not already being unregistered.
@@ -48,11 +61,11 @@ func (c *Client) closeSubscription(ID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for i, sub := range c.Subscriptions {
+	for i, sub := range c.subscriptions {
 		if sub.ID == ID {
 			// cancels the context of the associated REQ and removes the subscription from the client
 			sub.cancel()
-			c.Subscriptions = append(c.Subscriptions[:i], c.Subscriptions[i+1:]...)
+			c.subscriptions = append(c.subscriptions[:i], c.subscriptions[i+1:]...)
 			return
 		}
 	}
@@ -67,19 +80,19 @@ func (c *Client) newSubscription(req *ReqRequest) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	pos := slices.IndexFunc(c.Subscriptions, func(s Subscription) bool {
+	pos := slices.IndexFunc(c.subscriptions, func(s Subscription) bool {
 		return s.ID == req.subID
 	})
 
 	switch pos {
 	case -1:
 		// the REQ has an ID that was never seen, so we add a new subscription
-		c.Subscriptions = append(c.Subscriptions, sub)
+		c.subscriptions = append(c.subscriptions, sub)
 
 	default:
 		// the REQ is overwriting an existing subscription, so we cancel and remove the old for the new
-		c.Subscriptions[pos].cancel()
-		c.Subscriptions[pos] = sub
+		c.subscriptions[pos].cancel()
+		c.subscriptions[pos] = sub
 	}
 }
 
@@ -88,7 +101,7 @@ func (c *Client) matchesSubscription(event *nostr.Event) (match bool, ID string)
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	for _, sub := range c.Subscriptions {
+	for _, sub := range c.subscriptions {
 		if sub.Filters.Match(event) {
 			return true, sub.ID
 		}
@@ -135,7 +148,7 @@ func (c *Client) read() {
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
 				websocket.CloseAbnormalClosure) {
-				log.Printf("unexpected close error from IP %s: %v", c.IP, err)
+				log.Printf("unexpected close error from IP %s: %v", c.ip, err)
 			}
 			return
 		}
@@ -224,7 +237,7 @@ func (c *Client) write() {
 					websocket.CloseNormalClosure,
 					websocket.CloseGoingAway,
 					websocket.CloseAbnormalClosure) {
-					log.Printf("unexpected error when attemping to write to the IP %s: %v", c.IP, err)
+					log.Printf("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
 				}
 				return
 			}
@@ -236,7 +249,7 @@ func (c *Client) write() {
 					websocket.CloseNormalClosure,
 					websocket.CloseGoingAway,
 					websocket.CloseAbnormalClosure) {
-					log.Printf("unexpected error when attemping to ping the IP %s: %v", c.IP, err)
+					log.Printf("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
 				}
 				return
 			}
@@ -252,6 +265,6 @@ func (c *Client) send(r Response) {
 	select {
 	case c.toSend <- r:
 	default:
-		log.Printf("failed to send the client with IP %s the response %v: channel is full", c.IP, r)
+		log.Printf("failed to send the client with IP %s the response %v: channel is full", c.ip, r)
 	}
 }

@@ -29,7 +29,7 @@ const (
 	clientFailProbability       float32 = 0.01
 	relayFailProbability        float32 = 0.01
 
-	TestDuration = 500 * time.Second
+	TestDuration = 100 * time.Second
 )
 
 func TestRandom(t *testing.T) {

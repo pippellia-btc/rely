@@ -47,7 +47,7 @@ func BadIP(s rely.Stats, req *http.Request) error {
 func Kind666(client *rely.Client, event *nostr.Event) error {
 	if event.Kind == 666 {
 		// disconnect the client and return an error
-		blacklist = append(blacklist, client.IP)
+		blacklist = append(blacklist, client.IP())
 		client.Disconnect()
 		return errors.New("not today, Satan. Not today")
 	}
