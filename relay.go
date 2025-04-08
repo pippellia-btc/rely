@@ -23,9 +23,10 @@ const (
 
 type Relay struct {
 	// the set of active clients
-	clients map[*Client]struct{}
+	clients        map[*Client]struct{}
+	clientsCounter atomic.Int64
 
-	// the channel used to register/unregister a client
+	// the channels used to register/unregister a client
 	register   chan *Client
 	unregister chan *Client
 
@@ -50,7 +51,7 @@ func (r *Relay) enqueue(request Request) *RequestError {
 	}
 }
 
-// RelayFunctions is a collection of functions the user of this framework can customize.
+// RelayFunctions is a collection of functions the users of rely can customize.
 type RelayFunctions struct {
 	// a connection is accepted if and only if err is nil. All functions MUST be thread-safe.
 	RejectConnection []func(Stats, *http.Request) error
@@ -81,12 +82,13 @@ func NewRelayFunctions() RelayFunctions {
 }
 
 // Stats exposes relay statistics useful for rejecting connections during peaks of activity.
+// All methods are thread-safe, and can be called from multiple goroutines.
 type Stats interface {
 	// Clients returns the number of active clients connected to the relay
 	Clients() int
 
 	// QueueLoad returns the ratio of queued requests to total capacity,
-	// represented as a value between 0 and 1.
+	// represented as a float between 0 and 1.
 	QueueLoad() float64
 
 	// LastRegistrationFail returns the last time a client failed to be added
@@ -94,7 +96,7 @@ type Stats interface {
 	LastRegistrationFail() time.Time
 }
 
-func (r *Relay) Clients() int                    { return len(r.clients) }
+func (r *Relay) Clients() int                    { return int(r.clientsCounter.Load()) }
 func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
 func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
 
@@ -180,6 +182,8 @@ func (r *Relay) start(ctx context.Context) {
 
 		case client := <-r.register:
 			r.clients[client] = struct{}{}
+			r.clientsCounter.Add(1)
+
 			if err := r.OnConnect(client); err != nil {
 				client.send(NoticeResponse{Message: err.Error()})
 			}
@@ -188,6 +192,7 @@ func (r *Relay) start(ctx context.Context) {
 			if _, ok := r.clients[client]; ok {
 				delete(r.clients, client)
 				close(client.toSend)
+				r.clientsCounter.Add(-1)
 			}
 
 			// perform batch flushing to unregister as many clients as possible,
@@ -197,6 +202,7 @@ func (r *Relay) start(ctx context.Context) {
 			for i := 0; i < n; i++ {
 				client = <-r.unregister
 				if _, ok := r.clients[client]; ok {
+					r.clientsCounter.Add(-1)
 					delete(r.clients, client)
 					close(client.toSend)
 				}

@@ -110,7 +110,7 @@ func (r *Relay) PrintStats() {
 	fmt.Println("---------------- stats ----------------")
 	fmt.Printf("memory: %.2f MB\n", float64(memStats.Alloc)/(1024*1024))
 	fmt.Printf("goroutines: %d\n", goroutines)
-	fmt.Printf("active clients: %d\n", len(r.clients))
+	fmt.Printf("active clients: %d\n", r.clientsCounter.Load())
 	fmt.Printf("processing queue: %d/%d\n", len(r.queue), cap(r.queue))
 	fmt.Printf("register channel: %d/%d\n", len(r.register), cap(r.register))
 	fmt.Printf("unregister channel: %d/%d\n", len(r.unregister), cap(r.unregister))
