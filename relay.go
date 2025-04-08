@@ -138,32 +138,34 @@ func NewRelay() *Relay {
 
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
 // It's a blocking operation, that stops only when the context get cancelled.
-// Use Start if you don't want to listen and serve right away.
+// Use [Relay.Start] if you don't want to listen and serve right away.
 // Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
 func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	r.Start(ctx)
-	server := &http.Server{Addr: address, Handler: r}
 	exitErr := make(chan error, 1)
+	server := &http.Server{Addr: address, Handler: r}
 
 	go func() {
-		err := server.ListenAndServe()
-		if errors.Is(err, http.ErrServerClosed) {
-			// this error is the normal termination of the program
-			err = nil
+		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			// http.ErrServerClosed is fired when calling server.Shutdown
+			exitErr <- err
 		}
-
-		exitErr <- err
 	}()
 
-	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	select {
+	case <-ctx.Done():
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
+		if err := server.Shutdown(ctx); err != nil {
+			return err
+		}
+
+		return nil
+
+	case err := <-exitErr:
 		return err
 	}
-
-	return <-exitErr
 }
 
 // Start the relay in a separate goroutine. The relay will later need to be served using http.ListenAndServe.
