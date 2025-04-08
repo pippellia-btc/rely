@@ -173,7 +173,7 @@ func (r *Relay) Start(ctx context.Context) {
 }
 
 func (r *Relay) start(ctx context.Context) {
-	defer r.kill()
+	defer r.close()
 
 	for {
 		select {
@@ -250,8 +250,8 @@ func (r *Relay) start(ctx context.Context) {
 	}
 }
 
-// kill sends a close response for each subscription of each client, and then closes all relay channels.
-func (r *Relay) kill() {
+// close sends a close response for each subscription of each client.
+func (r *Relay) close() {
 	log.Println("shutting down the relay...")
 	defer log.Println("relay stopped")
 
