@@ -189,23 +189,17 @@ func (r *Relay) start(ctx context.Context) {
 			}
 
 		case client := <-r.unregister:
-			if _, ok := r.clients[client]; ok {
+			delete(r.clients, client)
+			close(client.toSend)
+
+			// perform batch unregistration to prevent [Client.Disconnect] from getting stuck
+			// on the channel send when many disconnections occur at the same time.
+			n := int64(len(r.unregister))
+			r.clientsCounter.Add(-1 - n)
+			for range n {
+				client = <-r.unregister
 				delete(r.clients, client)
 				close(client.toSend)
-				r.clientsCounter.Add(-1)
-			}
-
-			// perform batch flushing to unregister as many clients as possible,
-			// which is important to avoid the [Client.read] to get stuck
-			// on the channel send (in the defer) when many disconnections occur at the same time.
-			n := len(r.unregister)
-			for i := 0; i < n; i++ {
-				client = <-r.unregister
-				if _, ok := r.clients[client]; ok {
-					r.clientsCounter.Add(-1)
-					delete(r.clients, client)
-					close(client.toSend)
-				}
 			}
 
 		case request := <-r.queue:
