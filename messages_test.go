@@ -1,6 +1,8 @@
 package rely
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -250,6 +252,11 @@ func TestRejectAuth(t *testing.T) {
 		expected *RequestError
 	}{
 		{
+			name:     "auth before challenge has been sent",
+			auth:     &AuthRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", ""}}}},
+			expected: &RequestError{ID: "abc", Err: ErrInvalidAuthChallenge},
+		},
+		{
 			name:     "invalid kind",
 			auth:     &AuthRequest{Event: &nostr.Event{Kind: 69, ID: "abc", CreatedAt: nostr.Now()}},
 			expected: &RequestError{ID: "abc", Err: ErrInvalidAuthKind},
@@ -278,10 +285,18 @@ func TestRejectAuth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &Client{challenge: "whatever"}
+			client := &Client{}
 			if err := client.rejectAuth(test.auth); !errors.Is(err, test.expected) {
 				t.Fatalf("expected error %v, got %v", test.expected, err)
 			}
 		})
+	}
+}
+
+func BenchmarkCreateChallenge(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		challenge := make([]byte, 16)
+		rand.Read(challenge)
+		hex.EncodeToString(challenge)
 	}
 }

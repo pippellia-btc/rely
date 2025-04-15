@@ -176,6 +176,7 @@ func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 
 // rejectAuth rejects bad AUTH requests coming from clients. Auth is valid iff err == nil.
 func (c *Client) rejectAuth(auth *AuthRequest) *RequestError {
+
 	if auth.Event.Kind != nostr.KindClientAuthentication {
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthKind}
 	}
@@ -188,7 +189,8 @@ func (c *Client) rejectAuth(auth *AuthRequest) *RequestError {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if challenge == nil || challenge[1] != c.challenge {
+	if challenge == nil || challenge[1] == "" || challenge[1] != c.challenge {
+		// challenge[1] == "" protects against clients trying to auth BEFORE the challenge has been sent
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
 	}
 
