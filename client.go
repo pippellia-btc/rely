@@ -14,6 +14,8 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+const AuthChallengeBytes = 16
+
 type Subscription struct {
 	ID      string
 	cancel  context.CancelFunc // calling it cancels the context of the associated REQ
@@ -80,10 +82,10 @@ func (c *Client) Pubkey() *string {
 }
 
 // SendAuthChallenge sends the client a newly generated AUTH challenge.
-// This resets the authentication state: any previously authenticated pubkey is cleared,
-// and a new challenge is generated and sent.
+// This resets the authentication state:
+// any previously authenticated pubkey is cleared, and a new challenge is generated and sent.
 func (c *Client) SendAuthChallenge() {
-	challenge := make([]byte, 16)
+	challenge := make([]byte, AuthChallengeBytes)
 	rand.Read(challenge)
 
 	c.mu.Lock()
@@ -174,9 +176,8 @@ func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 	return nil
 }
 
-// rejectAuth rejects bad AUTH requests coming from clients. Auth is valid iff err == nil.
+// rejectAuth rejects bad AUTH requests coming from clients. Auth is valid iff err is nil.
 func (c *Client) rejectAuth(auth *AuthRequest) *RequestError {
-
 	if auth.Event.Kind != nostr.KindClientAuthentication {
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthKind}
 	}
@@ -185,12 +186,12 @@ func (c *Client) rejectAuth(auth *AuthRequest) *RequestError {
 		return &RequestError{ID: auth.ID, Err: ErrInvalidTimestamp}
 	}
 
-	challenge := auth.Tags.Find("challenge")
+	challenge := auth.Challenge()
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if challenge == nil || challenge[1] == "" || challenge[1] != c.challenge {
-		// challenge[1] == "" protects against clients trying to auth BEFORE the challenge has been sent
+	if len(challenge) != 2*AuthChallengeBytes || challenge != c.challenge {
+		// the length check prevents auth attempts before challenge is sent
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
 	}
 

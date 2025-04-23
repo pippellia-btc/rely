@@ -60,6 +60,16 @@ type AuthRequest struct {
 	*nostr.Event
 }
 
+func (a *AuthRequest) Challenge() string {
+	for _, tag := range a.Tags {
+		if len(tag) > 1 && tag[0] == "challenge" {
+			return tag[1]
+		}
+	}
+
+	return ""
+}
+
 type RequestError struct {
 	ID  string
 	Err error

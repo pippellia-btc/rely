@@ -264,8 +264,7 @@ func (r *Relay) close() {
 	}
 }
 
-// ServeHTTP implements http.Handler interface, rejecting connections as specified
-// and only handling WebSocket connections.
+// ServeHTTP implements http.Handler interface, only handling WebSocket connections.
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Header.Get("Upgrade") == "websocket" {
 		r.HandleWebsocket(w, req)
