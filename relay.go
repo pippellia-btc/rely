@@ -299,7 +299,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		go client.read()
 
 	default:
-		// if the registration queue is full, drop the connection to avoid overloading, and signal a failure
+		// the registration queue is full, drop the connection to avoid overloading, and signal a failure
 		r.lastRegistrationFail.Store(time.Now().Unix())
 		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "server is overloaded"))
 		conn.Close()

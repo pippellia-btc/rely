@@ -97,7 +97,7 @@ func (c *Client) SendAuthChallenge() {
 }
 
 // Disconnect sends the client to the unregister queue if it's not already being unregistered.
-// There it will be removed from the active clients and its channel will be closed.
+// There, it will be removed from the active clients and its channel will be closed.
 // This in turn will close the websocket connection.
 func (c *Client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
