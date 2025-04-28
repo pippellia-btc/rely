@@ -20,6 +20,7 @@ var counter = make(map[string]*atomic.Int32)
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()
@@ -53,6 +54,6 @@ func BadIP(s rely.Stats, req *http.Request) error {
 }
 
 func PrintIP(c *rely.Client) error {
-	log.Printf("registered client with IP %s", c.IP)
+	log.Printf("registered client with IP %s", c.IP())
 	return nil
 }

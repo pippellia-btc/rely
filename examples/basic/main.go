@@ -14,6 +14,7 @@ The most basic example of a relay using rely.
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()

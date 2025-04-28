@@ -39,6 +39,7 @@ var ErrRateLimited = errors.New("rate-limited: please try again in a few hours")
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go rely.HandleSignals(cancel)
 
 	cache = NewRankCache(ctx)

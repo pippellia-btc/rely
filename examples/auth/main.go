@@ -19,6 +19,7 @@ This relay enforces privacy rules when a client requests NIP-04 DMs:
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()

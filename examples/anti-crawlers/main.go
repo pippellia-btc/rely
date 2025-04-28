@@ -16,6 +16,7 @@ When a client sends too many filters, the relay rejects the request.
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()

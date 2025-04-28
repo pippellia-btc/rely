@@ -22,6 +22,7 @@ var blacklist []string
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()
