@@ -27,7 +27,7 @@ while unknown IPs are initially given a positive reputation.
 Source: https://vertexlab.io/blog/reputation_rate_limit
 */
 
-const relayBudget = 10000000
+const relayBudget = 10000000 // maximum events per day
 const ipTokens = 100
 
 var cache *RankCache
@@ -95,7 +95,7 @@ func main() {
 
 func pkRefill(rank float64) Refill {
 	return func(b *Bucket) {
-		if time.Since(b.lastRequest) > time.Hour {
+		if time.Since(b.lastRequest) > 24*time.Hour {
 			b.tokens = int(rank * relayBudget)
 		}
 	}
