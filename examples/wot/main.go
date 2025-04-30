@@ -31,8 +31,7 @@ const relayBudget = 10000000
 const ipTokens = 100
 
 var cache *RankCache
-var pkLimiter *Limiter
-var ipLimiter *Limiter
+var limiter *Limiter
 
 var ErrAuthRequired = errors.New("auth-required:")
 var ErrRateLimited = errors.New("rate-limited: please try again in a few hours")
@@ -43,13 +42,12 @@ func main() {
 	go rely.HandleSignals(cancel)
 
 	cache = NewRankCache(ctx)
-	pkLimiter = NewLimiter(ctx)
-	ipLimiter = NewLimiter(ctx)
+	limiter = NewLimiter(ctx)
 
 	relay := rely.NewRelay()
 	relay.RejectConnection = append(relay.RejectConnection, func(_ rely.Stats, r *http.Request) error {
 		// rate limiting IPs
-		if ipLimiter.Allow(rely.IP(r), ipRefill) {
+		if limiter.Allow(rely.IP(r), ipRefill) {
 			return nil
 		}
 		return ErrRateLimited
@@ -72,7 +70,7 @@ func main() {
 		if !exists {
 			// If the client IP has enough tokens, the pubkey is queued for ranking by Vertex;
 			// otherwise we disconnect the client as this is probably an attacker trying to waste our backend budget.
-			if !ipLimiter.Allow(c.IP(), ipRefill) {
+			if !limiter.Allow(c.IP(), ipRefill) {
 				c.Disconnect()
 				return ErrRateLimited
 			}
@@ -80,7 +78,7 @@ func main() {
 			cache.refresh <- *pubkey
 		}
 
-		if !pkLimiter.Allow(*pubkey, pkRefill(rank)) {
+		if !limiter.Allow(*pubkey, pkRefill(rank)) {
 			return ErrRateLimited
 		}
 
