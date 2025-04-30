@@ -24,7 +24,7 @@ limiting is applied to the ranking process
 Note: Unknown pubkeys are treated as having zero reputation,
 while unknown IPs are initially given a positive reputation.
 
-Source:
+Source: https://vertexlab.io/blog/reputation_rate_limit
 */
 
 const relayBudget = 10000000
