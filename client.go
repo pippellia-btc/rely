@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -175,7 +176,7 @@ func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 	return nil
 }
 
-// validateAuth rejects bad AUTH requests coming from clients. Auth is valid iff err is nil.
+// validateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
 func (c *Client) validateAuth(auth *AuthRequest) *RequestError {
 	if auth.Event.Kind != nostr.KindClientAuthentication {
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthKind}
@@ -192,6 +193,11 @@ func (c *Client) validateAuth(auth *AuthRequest) *RequestError {
 	if len(challenge) != 2*AuthChallengeBytes || challenge != c.challenge {
 		// the length check prevents auth attempts before the challenge is sent
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
+	}
+
+	relay := auth.Relay()
+	if !strings.Contains(relay, c.relay.Domain) {
+		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
 	}
 
 	if err := InvalidID(c, auth.Event); err != nil {

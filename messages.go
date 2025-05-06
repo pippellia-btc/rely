@@ -22,8 +22,9 @@ var (
 
 	ErrInvalidAuthRequest   = errors.New(`an AUTH request must follow this format: ['AUTH', {event_JSON}]`)
 	ErrInvalidTimestamp     = errors.New(`createdAt must be within one minute from the current time`)
-	ErrInvalidAuthChallenge = errors.New(`invalid AUTH challenge`)
 	ErrInvalidAuthKind      = errors.New(`invalid AUTH kind`)
+	ErrInvalidAuthChallenge = errors.New(`invalid AUTH challenge`)
+	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
 )
 
 // Request is a minimal interface that must be fullfilled by all requests that
@@ -66,7 +67,15 @@ func (a *AuthRequest) Challenge() string {
 			return tag[1]
 		}
 	}
+	return ""
+}
 
+func (a *AuthRequest) Relay() string {
+	for _, tag := range a.Tags {
+		if len(tag) > 1 && tag[0] == "relay" {
+			return tag[1]
+		}
+	}
 	return ""
 }
 

@@ -36,6 +36,11 @@ type Relay struct {
 	// the last (unix) time a client registration failed due to the register channel being full
 	lastRegistrationFail atomic.Int64
 
+	// Domain is the expected domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
+	// The relay tag must include this domain as a substring for the authentication to succeed.
+	// This should be explicitly set; if unset, a warning will be logged and NIP-42 will fail.
+	Domain string
+
 	RelayFunctions
 	Websocket WebsocketOptions
 }
@@ -176,6 +181,10 @@ func (r *Relay) Start(ctx context.Context) {
 
 func (r *Relay) start(ctx context.Context) {
 	defer r.close()
+
+	if r.Domain == "" {
+		log.Println("WARN: you must set relay.Domain to validate NIP-42 auth")
+	}
 
 	for {
 		select {
