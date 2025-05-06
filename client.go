@@ -45,7 +45,6 @@ type Client struct {
 	conn   *websocket.Conn
 	toSend chan Response
 
-	// a boolean that signals if a client has started the process of unregistering.
 	isUnregistering atomic.Bool
 }
 
@@ -176,8 +175,8 @@ func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 	return nil
 }
 
-// rejectAuth rejects bad AUTH requests coming from clients. Auth is valid iff err is nil.
-func (c *Client) rejectAuth(auth *AuthRequest) *RequestError {
+// validateAuth rejects bad AUTH requests coming from clients. Auth is valid iff err is nil.
+func (c *Client) validateAuth(auth *AuthRequest) *RequestError {
 	if auth.Event.Kind != nostr.KindClientAuthentication {
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthKind}
 	}
@@ -186,12 +185,12 @@ func (c *Client) rejectAuth(auth *AuthRequest) *RequestError {
 		return &RequestError{ID: auth.ID, Err: ErrInvalidTimestamp}
 	}
 
-	challenge := auth.Challenge()
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	challenge := auth.Challenge()
 	if len(challenge) != 2*AuthChallengeBytes || challenge != c.challenge {
-		// the length check prevents auth attempts before challenge is sent
+		// the length check prevents auth attempts before the challenge is sent
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
 	}
 
@@ -292,7 +291,7 @@ func (c *Client) read() {
 				continue
 			}
 
-			if err := c.rejectAuth(auth); err != nil {
+			if err := c.validateAuth(auth); err != nil {
 				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}

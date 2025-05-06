@@ -245,7 +245,7 @@ func TestParseAuthRequest(t *testing.T) {
 	}
 }
 
-func TestRejectAuth(t *testing.T) {
+func TestValidateAuth(t *testing.T) {
 	tests := []struct {
 		name     string
 		auth     *AuthRequest
@@ -286,7 +286,7 @@ func TestRejectAuth(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &Client{}
-			if err := client.rejectAuth(test.auth); !errors.Is(err, test.expected) {
+			if err := client.validateAuth(test.auth); !errors.Is(err, test.expected) {
 				t.Fatalf("expected error %v, got %v", test.expected, err)
 			}
 		})

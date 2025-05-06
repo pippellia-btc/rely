@@ -65,10 +65,10 @@ type RelayFunctions struct {
 	// the action the relay performs after establishing a connection with the specified client.
 	OnConnect func(*Client) error
 
-	// the action the relay performs on an EVENT coming from the specified client
+	// the action the relay performs on an EVENT coming from the specified client.
 	OnEvent func(*Client, *nostr.Event) error
 
-	// the action the relay performs on the filters coming from a REQ from the specified client
+	// the action the relay performs on the filters of a REQ coming from the specified client.
 	OnFilters func(context.Context, *Client, nostr.Filters) ([]nostr.Event, error)
 }
 
@@ -84,7 +84,7 @@ func NewRelayFunctions() RelayFunctions {
 // Stats exposes relay statistics useful for rejecting connections during peaks of activity.
 // All methods are thread-safe, and can be called from multiple goroutines.
 type Stats interface {
-	// Clients returns the number of active clients connected to the relay
+	// Clients returns the number of active clients connected to the relay.
 	Clients() int
 
 	// QueueLoad returns the ratio of queued requests to total capacity,
