@@ -11,7 +11,7 @@ import (
 
 var (
 	ErrGeneric         = errors.New(`the request must be a JSON array with a length greater than two`)
-	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ', 'CLOSE'and 'AUTH'`)
+	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ', 'CLOSE' and 'AUTH'`)
 
 	ErrInvalidEventRequest   = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
 	ErrInvalidEventID        = errors.New(`invalid event ID`)
