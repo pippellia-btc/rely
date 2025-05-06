@@ -132,7 +132,7 @@ func (c *RankCache) refresher(ctx context.Context) {
 }
 
 const vertex = "wss://relay.vertexlab.io"
-const sk = "93a8fe430a6b27324c4a8fa1a68ed0088a258052bbee3bd82bc2ac49eef40613"
+const sk = "93a8fe430a6b27324c4a8fa1a68ed0088a258052bbee3bd82bc2ac49eef40613" // don't do this in prod, this is just a demo
 
 func (c *RankCache) refreshBatch(ctx context.Context, batch []string) error {
 	if len(batch) < 1 {
@@ -154,7 +154,7 @@ func (c *RankCache) refreshBatch(ctx context.Context, batch []string) error {
 		return fmt.Errorf("failed to sign: %w", err)
 	}
 
-	response, err := dvmResponse(ctx, request, "http://localhost:3334")
+	response, err := dvmResponse(ctx, request, vertex)
 	if err != nil {
 		return err
 	}
