@@ -237,8 +237,9 @@ func (c *Client) read() {
 
 		label, json, err := JSONArray(data)
 		if err != nil {
-			// disconnect since the client is not talking nostr
-			return
+			// if unable to parse the message, send a generic NOTICE
+			c.send(NoticeResponse{Message: err.Error()})
+			continue
 		}
 
 		switch label {
