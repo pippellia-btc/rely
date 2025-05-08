@@ -42,7 +42,7 @@ type Relay struct {
 	Domain string
 
 	RelayFunctions
-	Websocket WebsocketOptions
+	WebsocketOptions
 }
 
 // enqueue tries to add the request to the queue of the relay.
@@ -128,12 +128,12 @@ func NewWebsocketOptions() WebsocketOptions {
 // Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
 func NewRelay() *Relay {
 	r := &Relay{
-		queue:          make(chan Request, 10000),
-		clients:        make(map[*Client]struct{}, 100),
-		register:       make(chan *Client, 100),
-		unregister:     make(chan *Client, 100),
-		RelayFunctions: NewRelayFunctions(),
-		Websocket:      NewWebsocketOptions(),
+		queue:            make(chan Request, 10000),
+		clients:          make(map[*Client]struct{}, 100),
+		register:         make(chan *Client, 100),
+		unregister:       make(chan *Client, 100),
+		RelayFunctions:   NewRelayFunctions(),
+		WebsocketOptions: NewWebsocketOptions(),
 	}
 
 	r.RejectConnection = append(r.RejectConnection, RecentFailure)
@@ -293,7 +293,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	conn, err := r.Websocket.Upgrader.Upgrade(w, req, nil)
+	conn, err := r.Upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Printf("failed to upgrade to websocket: %v", err)
 		return
