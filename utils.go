@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 )
 
@@ -62,16 +63,6 @@ func IP(r *http.Request) string {
 	}
 
 	return host
-}
-
-func logEvent(c *Client, e *nostr.Event) error {
-	log.Printf("received eventID %s from IP %s", e.ID, c.ip)
-	return nil
-}
-
-func logFilters(ctx context.Context, c *Client, f nostr.Filters) ([]nostr.Event, error) {
-	log.Printf("received %d filters from IP %s", len(f), c.ip)
-	return nil, nil
 }
 
 // Display important statistics of the relay while it's running.
@@ -124,4 +115,21 @@ func HandleSignals(cancel context.CancelFunc) {
 	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
 	<-signalChan
 	cancel()
+}
+
+func IsUnexpectedClose(err error) bool {
+	return websocket.IsUnexpectedCloseError(err,
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.CloseAbnormalClosure)
+}
+
+func logEvent(c *Client, e *nostr.Event) error {
+	log.Printf("received eventID %s from IP %s", e.ID, c.ip)
+	return nil
+}
+
+func logFilters(ctx context.Context, c *Client, f nostr.Filters) ([]nostr.Event, error) {
+	log.Printf("received %d filters from IP %s", len(f), c.ip)
+	return nil, nil
 }

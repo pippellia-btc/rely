@@ -226,10 +226,7 @@ func (c *Client) read() {
 	for {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err,
-				websocket.CloseNormalClosure,
-				websocket.CloseGoingAway,
-				websocket.CloseAbnormalClosure) {
+			if IsUnexpectedClose(err) {
 				log.Printf("unexpected close error from IP %s: %v", c.ip, err)
 			}
 			return
@@ -333,10 +330,7 @@ func (c *Client) write() {
 			}
 
 			if err := c.conn.WriteJSON(response); err != nil {
-				if websocket.IsUnexpectedCloseError(err,
-					websocket.CloseNormalClosure,
-					websocket.CloseGoingAway,
-					websocket.CloseAbnormalClosure) {
+				if IsUnexpectedClose(err) {
 					log.Printf("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
 				}
 				return
@@ -345,10 +339,7 @@ func (c *Client) write() {
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(c.relay.Websocket.WriteWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				if websocket.IsUnexpectedCloseError(err,
-					websocket.CloseNormalClosure,
-					websocket.CloseGoingAway,
-					websocket.CloseAbnormalClosure) {
+				if IsUnexpectedClose(err) {
 					log.Printf("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
 				}
 				return
