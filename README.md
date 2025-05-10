@@ -2,6 +2,12 @@
 A framework for building super custom relays you can *rely* on.
 Designed to be simple and stable. About 1000 lines of code.
 
+## Installation
+
+```
+go get github.com/pippellia-btc/rely
+```
+
 ## Why another framework
 I started this new framework inspired by [khatru](https://github.com/fiatjaf/khatru) but also frustrated by it.
 Despite its initial simplicity, achieving deep customization means dealing with (and understanding) the khatru relay structure.
