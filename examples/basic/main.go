@@ -17,7 +17,9 @@ func main() {
 	defer cancel()
 	go rely.HandleSignals(cancel)
 
-	relay := rely.NewRelay()
+	relay := rely.NewRelay(
+		rely.WithMaxMessageSize(10),
+	)
 	relay.OnEvent = Save
 	relay.OnFilters = Query
 

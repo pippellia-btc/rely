@@ -9,6 +9,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
+	. "github.com/pippellia-btc/rely"
 )
 
 /*
@@ -39,12 +40,16 @@ var ErrRateLimited = errors.New("rate-limited: please try again in a few hours")
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go rely.HandleSignals(cancel)
+	go HandleSignals(cancel)
 
 	cache = NewRankCache(ctx)
 	limiter = NewLimiter(ctx)
 
-	relay := rely.NewRelay()
+	relay := NewRelay(
+		WithDomain("example.com"), // required for validating NIP-42 auth
+		WithQueueCapacity(10000),  // higher capacity allows traffic bursts without dropping requests
+	)
+
 	relay.RejectConnection = append(relay.RejectConnection, func(_ rely.Stats, r *http.Request) error {
 		// rate limiting IPs
 		if limiter.Allow(rely.IP(r), ipRefill) {

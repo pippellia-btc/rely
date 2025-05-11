@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -45,17 +46,6 @@ type Relay struct {
 	RelayFunctions
 }
 
-// enqueue tries to add the request to the queue of the relay.
-// If it's full, it returns the error [ErrOverloaded]
-func (r *Relay) enqueue(request Request) *RequestError {
-	select {
-	case r.queue <- request:
-		return nil
-	default:
-		return &RequestError{ID: request.ID(), Err: ErrOverloaded}
-	}
-}
-
 // RelayFunctions is a collection of functions the users of rely can customize.
 type RelayFunctions struct {
 	// a connection is accepted if and only if err is nil. All functions MUST be thread-safe.
@@ -80,9 +70,11 @@ type RelayFunctions struct {
 // NewRelayFunctions that only logs stuff, to avoid panicking on a nil method.
 func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
-		OnConnect: func(c *Client) error { return nil },
-		OnEvent:   logEvent,
-		OnFilters: logFilters,
+		OnConnect:        func(c *Client) error { return nil },
+		OnEvent:          logEvent,
+		OnFilters:        logFilters,
+		RejectConnection: []func(Stats, *http.Request) error{RecentFailure},
+		RejectEvent:      []func(*Client, *nostr.Event) error{InvalidID, InvalidSignature},
 	}
 }
 
@@ -125,7 +117,7 @@ func newWebsocketOptions() websocketOptions {
 
 type Option func(*Relay)
 
-func WithDomain(d string) Option       { return func(r *Relay) { r.domain = d } }
+func WithDomain(d string) Option       { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
 func WithQueueCapacity(cap int) Option { return func(r *Relay) { r.queue = make(chan Request, cap) } }
 
 func WithReadBufferSize(s int) Option       { return func(r *Relay) { r.upgrader.ReadBufferSize = s } }
@@ -160,13 +152,43 @@ func NewRelay(opts ...Option) *Relay {
 		opt(r)
 	}
 
+	r.validate()
+	return r
+}
+
+// enqueue tries to add the request to the queue of the relay.
+// If it's full, it returns the error [ErrOverloaded]
+func (r *Relay) enqueue(request Request) *RequestError {
+	select {
+	case r.queue <- request:
+		return nil
+	default:
+		return &RequestError{ID: request.ID(), Err: ErrOverloaded}
+	}
+}
+
+// validate panics if structural relay parameters are invalid, and logs warnings
+// for non-fatal but potentially misconfigured settings (e.g., missing domain).
+func (r *Relay) validate() {
+	if r.pingPeriod < 1*time.Second {
+		panic("ping period must be greater than 1s")
+	}
+
+	if r.pongWait <= r.pingPeriod {
+		panic("pong wait must be greater than ping period")
+	}
+
+	if r.writeWait <= 1*time.Second {
+		panic("write wait must be greater than 1s")
+	}
+
+	if r.maxMessageSize < 512 {
+		panic("max message size must be greater than 512 bytes to accept nostr events")
+	}
+
 	if r.domain == "" {
 		log.Println("WARN: you must set the relay's domain to validate NIP-42 auth")
 	}
-
-	r.RejectConnection = append(r.RejectConnection, RecentFailure)
-	r.RejectEvent = append(r.RejectEvent, InvalidID, InvalidSignature)
-	return r
 }
 
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
