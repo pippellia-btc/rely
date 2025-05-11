@@ -25,8 +25,8 @@ const (
 
 type Relay struct {
 	// the set of active clients
-	clients        map[*Client]struct{}
-	clientsCounter atomic.Int64
+	clients      map[*Client]struct{}
+	clientsCount atomic.Int64
 
 	// the channels used to register/unregister a client
 	register   chan *Client
@@ -93,7 +93,7 @@ type Stats interface {
 	LastRegistrationFail() time.Time
 }
 
-func (r *Relay) Clients() int                    { return int(r.clientsCounter.Load()) }
+func (r *Relay) Clients() int                    { return int(r.clientsCount.Load()) }
 func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
 func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
 
@@ -239,7 +239,7 @@ func (r *Relay) start(ctx context.Context) {
 
 		case client := <-r.register:
 			r.clients[client] = struct{}{}
-			r.clientsCounter.Add(1)
+			r.clientsCount.Add(1)
 
 			if err := r.OnConnect(client); err != nil {
 				client.send(NoticeResponse{Message: err.Error()})
@@ -252,7 +252,7 @@ func (r *Relay) start(ctx context.Context) {
 			// perform batch unregistration to prevent [Client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
 			n := int64(len(r.unregister))
-			r.clientsCounter.Add(-1 - n)
+			r.clientsCount.Add(-1 - n)
 			for range n {
 				client = <-r.unregister
 				delete(r.clients, client)
