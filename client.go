@@ -196,7 +196,7 @@ func (c *Client) validateAuth(auth *AuthRequest) *RequestError {
 	}
 
 	relay := auth.Relay()
-	if !strings.Contains(relay, c.relay.Domain) {
+	if !strings.Contains(relay, c.relay.domain) {
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
 	}
 
@@ -219,9 +219,9 @@ func (c *Client) read() {
 		c.conn.Close()
 	}()
 
-	c.conn.SetReadLimit(c.relay.MaxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(c.relay.PongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.PongWait)); return nil })
+	c.conn.SetReadLimit(c.relay.maxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait)); return nil })
 
 	for {
 		_, data, err := c.conn.ReadMessage()
@@ -312,7 +312,7 @@ func (c *Client) read() {
 // The client writes to the websocket whatever [Response] it receives in its channel.
 // Periodically it writes [websocket.PingMessage]s.
 func (c *Client) write() {
-	ticker := time.NewTicker(c.relay.PingPeriod)
+	ticker := time.NewTicker(c.relay.pingPeriod)
 	defer func() {
 		ticker.Stop()
 		c.conn.Close()
@@ -321,7 +321,7 @@ func (c *Client) write() {
 	for {
 		select {
 		case response, ok := <-c.toSend:
-			c.conn.SetWriteDeadline(time.Now().Add(c.relay.WriteWait))
+			c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
 
 			if !ok {
 				// the relay has closed the channel
@@ -337,7 +337,7 @@ func (c *Client) write() {
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(c.relay.WriteWait))
+			c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				if IsUnexpectedClose(err) {
 					log.Printf("unexpected error when attemping to ping the IP %s: %v", c.ip, err)

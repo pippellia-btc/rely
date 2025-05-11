@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
+	. "github.com/pippellia-btc/rely"
 )
 
 var (
@@ -43,7 +44,9 @@ func TestRandom(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), TestDuration)
 		defer cancel()
 
-		relay := rely.NewRelay()
+		relay := NewRelay(
+			WithQueueCapacity(10000),
+		)
 		relay.OnConnect = dummyOnConnect
 		relay.OnEvent = dummyOnEvent
 		relay.OnFilters = dummyOnFilters

@@ -9,6 +9,7 @@ import (
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
+	. "github.com/pippellia-btc/rely"
 )
 
 /*
@@ -20,11 +21,13 @@ This relay enforces privacy rules when a client requests NIP-04 DMs:
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go rely.HandleSignals(cancel)
+	go HandleSignals(cancel)
 
-	relay := rely.NewRelay()
+	relay := NewRelay(
+		WithDomain("example.com"), // the domain must be set to correctly validate NIP-42
+	)
+
 	relay.RejectFilters = append(relay.RejectFilters, AuthedOnDMs)
-	relay.Domain = "example.com" // the domain must be set to correctly validate NIP-42
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)

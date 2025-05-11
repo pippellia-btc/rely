@@ -19,6 +19,7 @@ const (
 	DefaultPongWait       time.Duration = 60 * time.Second
 	DefaultPingPeriod     time.Duration = 45 * time.Second
 	DefaultMaxMessageSize int64         = 500000 // 0.5MB
+	DefaultBufferSize     int           = 1024   // 1KB
 )
 
 type Relay struct {
@@ -36,17 +37,16 @@ type Relay struct {
 	// the last (unix) time a client registration failed due to the register channel being full
 	lastRegistrationFail atomic.Int64
 
-	// Domain is the expected domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
-	// The relay tag must include this domain as a substring for the authentication to succeed.
-	// This should be explicitly set; if unset, a warning will be logged and NIP-42 will fail.
-	Domain string
+	// domain is the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
+	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
+	domain string
+	websocketOptions
 
 	RelayFunctions
-	WebsocketOptions
 }
 
 // enqueue tries to add the request to the queue of the relay.
-// If it's full, it return the error [ErrOverloaded]
+// If it's full, it returns the error [ErrOverloaded]
 func (r *Relay) enqueue(request Request) *RequestError {
 	select {
 	case r.queue <- request:
@@ -78,7 +78,7 @@ type RelayFunctions struct {
 }
 
 // NewRelayFunctions that only logs stuff, to avoid panicking on a nil method.
-func NewRelayFunctions() RelayFunctions {
+func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
 		OnConnect: func(c *Client) error { return nil },
 		OnEvent:   logEvent,
@@ -105,35 +105,63 @@ func (r *Relay) Clients() int                    { return int(r.clientsCounter.L
 func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
 func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
 
-type WebsocketOptions struct {
-	Upgrader       websocket.Upgrader
-	WriteWait      time.Duration
-	PongWait       time.Duration
-	PingPeriod     time.Duration
-	MaxMessageSize int64
+type websocketOptions struct {
+	upgrader       websocket.Upgrader
+	writeWait      time.Duration
+	pongWait       time.Duration
+	pingPeriod     time.Duration
+	maxMessageSize int64
 }
 
-func NewWebsocketOptions() WebsocketOptions {
-	return WebsocketOptions{
-		Upgrader:       websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024},
-		WriteWait:      DefaultWriteWait,
-		PongWait:       DefaultPongWait,
-		PingPeriod:     DefaultPingPeriod,
-		MaxMessageSize: DefaultMaxMessageSize,
+func newWebsocketOptions() websocketOptions {
+	return websocketOptions{
+		upgrader:       websocket.Upgrader{ReadBufferSize: DefaultBufferSize, WriteBufferSize: DefaultBufferSize},
+		writeWait:      DefaultWriteWait,
+		pongWait:       DefaultPongWait,
+		pingPeriod:     DefaultPingPeriod,
+		maxMessageSize: DefaultMaxMessageSize,
 	}
 }
 
-// NewRelay creates a new relay with default values and functions.
-// In particular, the relay rejects connections in periods of high load, and rejects invalid nostr events.
-// Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
-func NewRelay() *Relay {
+type Option func(*Relay)
+
+func WithDomain(d string) Option       { return func(r *Relay) { r.domain = d } }
+func WithQueueCapacity(cap int) Option { return func(r *Relay) { r.queue = make(chan Request, cap) } }
+
+func WithReadBufferSize(s int) Option       { return func(r *Relay) { r.upgrader.ReadBufferSize = s } }
+func WithWriteBufferSize(s int) Option      { return func(r *Relay) { r.upgrader.WriteBufferSize = s } }
+func WithWriteWait(d time.Duration) Option  { return func(r *Relay) { r.writeWait = d } }
+func WithPongWait(d time.Duration) Option   { return func(r *Relay) { r.pongWait = d } }
+func WithPingPeriod(d time.Duration) Option { return func(r *Relay) { r.pingPeriod = d } }
+func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessageSize = s } }
+
+// NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
+// Customize its structure with functional options (e.g., [WithDomain], [WithPingPeriod]).
+// Customize its behaviour by writing OnEvent, OnFilters and other [RelayFunctions].
+//
+// Example:
+//
+//	relay := NewRelay(
+//	    WithDomain("example.com"), // required for proper NIP-42 validation
+//	    WithQueueCapacity(5000),
+//	    WithPingPeriod(30 * time.Second),
+//	)
+func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		queue:            make(chan Request, 10000),
+		queue:            make(chan Request, 1000),
 		clients:          make(map[*Client]struct{}, 100),
 		register:         make(chan *Client, 100),
 		unregister:       make(chan *Client, 100),
-		RelayFunctions:   NewRelayFunctions(),
-		WebsocketOptions: NewWebsocketOptions(),
+		RelayFunctions:   newRelayFunctions(),
+		websocketOptions: newWebsocketOptions(),
+	}
+
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	if r.domain == "" {
+		log.Println("WARN: you must set the relay's domain to validate NIP-42 auth")
 	}
 
 	r.RejectConnection = append(r.RejectConnection, RecentFailure)
@@ -181,10 +209,6 @@ func (r *Relay) Start(ctx context.Context) {
 
 func (r *Relay) start(ctx context.Context) {
 	defer r.close()
-
-	if r.Domain == "" {
-		log.Println("WARN: you must set relay.Domain to validate NIP-42 auth")
-	}
 
 	for {
 		select {
@@ -293,7 +317,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	conn, err := r.Upgrader.Upgrade(w, req, nil)
+	conn, err := r.upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Printf("failed to upgrade to websocket: %v", err)
 		return
