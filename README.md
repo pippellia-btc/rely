@@ -3,9 +3,58 @@ A framework for building super custom relays you can *rely* on.
 Designed to be simple and stable. About 1000 lines of code.
 
 ## Installation
-
 ```
 go get github.com/pippellia-btc/rely
+```
+
+## Simple and Customizable
+Getting started is easy, and deep customization is just as straightforward.
+
+```golang
+relay := NewRelay()
+if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
+	panic(err)
+}
+```
+
+### Structural Customization
+Fine-tune core parameters using functional options:
+
+```golang
+relay := NewRelay(
+    WithDomain("example.com"),       // required for proper NIP-42 validation
+    WithQueueCapacity(5000),         // increases capacity for traffic bursts
+    WithPingPeriod(30 * time.Second),
+)
+```
+
+### Behavioral Customization
+
+Define behavior by simply defining `RelayFunctions`:
+```golang
+func main() {
+	// ...
+	relay.RejectConnection = append(relay.RejectConnection, BadIP)
+	relay.RejectEvent = append(relay.RejectEvent, RejectSatan)
+	relay.OnEvent = Save
+}
+
+func BadIP(s Stats, req *http.Request) error {
+	IP := IP(req)
+	if slices.Contains(blacklist, IP) {
+		return fmt.Errorf("you are not welcome here")
+	}
+	return nil
+}
+
+func RejectSatan(client *rely.Client, event *nostr.Event) error {
+	if event.Kind == 666 {
+		blacklist = append(blacklist, client.IP())
+		client.Disconnect()
+		return errors.New("not today, Satan. Not today")
+	}
+	return nil
+}
 ```
 
 ## Why another framework
@@ -19,37 +68,6 @@ There is a relay, there are clients connecting to it, each with their own subscr
 
 Also, rely is [properly tested](#well-tested).
 
-## Simple to use
-Like khatru, rely is simple to use. Check out the `/example` directory for more.
-
-```golang
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	go rely.HandleSignals(cancel)   // when pressing ctrl+c, the context is cancelled
-
-	relay := rely.NewRelay()
-	relay.OnEvent = Save
-	relay.OnFilters = Query
-
-	addr := "localhost:3334"
-	log.Printf("running relay on %s", addr)
-
-	if err := relay.StartAndServe(ctx, addr); err != nil {
-		panic(err)
-	}
-}
-
-func Save(c *rely.Client, e *nostr.Event) error {
-	log.Printf("received event: %v", e)
-	return nil
-}
-
-func Query(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event, error) {
-	log.Printf("received filters %v", f)
-	return nil, nil
-}
-```
-
 ## Well tested
 How do you test a relay framework?
 
@@ -59,27 +77,34 @@ You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/
 
 ## FAQs
 
-- Why did you chose for `relay.OnFilters` instead of `relay.OnFilter`? After all it's easier to deal with one filter at the time.
+<details>
+<summary>Why did you chose for `relay.OnFilters` instead of `relay.OnFilter`?</summary>
 
-    - Because I don't want to hide the fact that a REQ can contain multiple filters, and I want the user of the framework to deal with it. For example, he/she can decide to reject REQs that contain too many filters, or doing something like the following
-        ```golang
-        // TooMany rejects the REQ if the client has too many open filters.
-        func TooMany(client *rely.Client, filters nostr.Filters) error {
-            total := len(filters)
-            for _, sub := range client.Subscriptions() {
-                total += len(sub.Filters)
-            }
+Because I don't want to hide the fact that a REQ can contain multiple filters, and I want the user of the framework to deal with it.  
+For example, he/she can decide to reject REQs that contain too many filters, or doing something like the following
 
-            if total > 10 {
-                client.Disconnect()
-                return errors.New("rate-limited: too many open filters")
-            }
+```golang
+func TooMany(client *rely.Client, filters nostr.Filters) error {
+    total := len(filters)
+    for _, sub := range client.Subscriptions() {
+        total += len(sub.Filters)
+    }
 
-            return nil
-        }
-        ```
+    if total > 10 {
+        client.Disconnect()
+        return errors.New("rate-limited: too many open filters")
+    }
 
-- Wen `<insert feature you like>`?
-    - Open a well written issue and make a case for why it should be added. Keep in mind that, being a [grug brain dev](https://grugbrain.dev/), I believe:
+    return nil
+}
+```
+</details>
+
+<details>
+<summary>When [feature you like] ?</summary>
+
+Open a well written issue and make a case for why it should be added. Keep in mind that, being a [grug brain dev](https://grugbrain.dev/), I believe:
 
 > best weapon against complexity spirit demon is magic word: "no"
+
+</details>
