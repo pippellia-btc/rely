@@ -159,6 +159,59 @@ func TestParseToReqRequest(t *testing.T) {
 	}
 }
 
+func TestParseToCountRequest(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		expected *CountRequest
+		err      *RequestError
+	}{
+		{
+			name: "ID not a string",
+			data: []byte(`["COUNT", 111, {"kinds": [1]}]`),
+			err:  &RequestError{Err: ErrInvalidSubscriptionID},
+		},
+		{
+			name: "incorrect lenght",
+			data: []byte(`["COUNT", "abc"]`),
+			err:  &RequestError{ID: "abc", Err: ErrInvalidCountRequest},
+		},
+		{
+			name: "empty ID",
+			data: []byte(`["COUNT", "", {"kinds": [1]}]`),
+			err:  &RequestError{ID: "", Err: ErrInvalidSubscriptionID},
+		},
+		{
+			name: "ID is too long",
+			data: []byte(`["COUNT", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", {"kinds": [1]}]`),
+			err:  &RequestError{ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Err: ErrInvalidSubscriptionID},
+		},
+		{
+			name:     "valid",
+			data:     []byte(`["COUNT", "abcd", {"kinds": [1]}, {"kinds": [30023 ], "#d": ["buteko", "batuke"]}]`),
+			expected: &CountRequest{subID: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, json, err := JSONArray(test.data)
+			if err != nil {
+				t.Fatalf("expected error nil, got %v", err)
+			}
+
+			count, err := ParseCountRequest(json)
+			if !errors.Is(err, test.err) {
+				t.Fatalf("expected error %v, got %v", test.err, err)
+			}
+
+			if !reflect.DeepEqual(count, test.expected) {
+				t.Fatalf("expected count request %v, got %v", test.expected, count)
+			}
+		})
+	}
+}
+
 func TestParseToCloseRequest(t *testing.T) {
 	tests := []struct {
 		name     string

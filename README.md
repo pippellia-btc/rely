@@ -78,7 +78,7 @@ You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/
 ## FAQs
 
 <details>
-<summary>Why did you chose for `relay.OnFilters` instead of `relay.OnFilter`?</summary>
+<summary>Why does `relay.OnReq` accept multiple filters?</summary>
 
 Because I don't want to hide the fact that a REQ can contain multiple filters, and I want the user of the framework to deal with it.  
 For example, he/she can decide to reject REQs that contain too many filters, or doing something like the following

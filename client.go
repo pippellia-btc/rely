@@ -19,15 +19,9 @@ const AuthChallengeBytes = 16
 
 type Subscription struct {
 	ID      string
-	cancel  context.CancelFunc // calling it cancels the context of the associated REQ
+	Type    string // either "REQ" or "COUNT"
 	Filters nostr.Filters
-}
-
-// newSubscription creates the subscription associated with the provided [ReqRequest].
-func newSubscription(req *ReqRequest) Subscription {
-	sub := Subscription{ID: req.subID, Filters: req.Filters}
-	req.ctx, sub.cancel = context.WithCancel(context.Background())
-	return sub
+	cancel  context.CancelFunc // calling it cancels the context of the associated REQ
 }
 
 // Client is a middleman between the websocket connection and the [Relay].
@@ -112,7 +106,7 @@ func (c *Client) closeSubscription(ID string) {
 
 	for i, sub := range c.subscriptions {
 		if sub.ID == ID {
-			// cancels the context of the associated REQ and removes the subscription from the client
+			// cancels the context of the associated REQ/COUNT and removes the subscription from the client
 			sub.cancel()
 			c.subscriptions = append(c.subscriptions[:i], c.subscriptions[i+1:]...)
 			return
@@ -143,27 +137,17 @@ func (c *Client) openSubscription(sub Subscription) {
 	}
 }
 
-// matchesSubscription returns which subscription of the client matches the provided event (if any).
+// matchesSubscription returns which (REQ) Subscription of the client matches the provided event (if any).
 func (c *Client) matchesSubscription(event *nostr.Event) (match bool, ID string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	for _, sub := range c.subscriptions {
-		if sub.Filters.Match(event) {
+		if sub.Type == "REQ" && sub.Filters.Match(event) {
 			return true, sub.ID
 		}
 	}
 	return false, ""
-}
-
-// rejectReq wraps the relay RejectFilters method and makes them accessible to the client.
-func (c *Client) rejectReq(req *ReqRequest) *RequestError {
-	for _, reject := range c.relay.RejectFilters {
-		if err := reject(c, req.Filters); err != nil {
-			return &RequestError{ID: req.subID, Err: err}
-		}
-	}
-	return nil
 }
 
 // rejectEvent wraps the relay RejectEvent method and makes them accessible to the client.
@@ -171,6 +155,26 @@ func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 	for _, reject := range c.relay.RejectEvent {
 		if err := reject(c, e.Event); err != nil {
 			return &RequestError{ID: e.Event.ID, Err: err}
+		}
+	}
+	return nil
+}
+
+// rejectReq wraps the relay RejectReq method and makes them accessible to the client.
+func (c *Client) rejectReq(req *ReqRequest) *RequestError {
+	for _, reject := range c.relay.RejectReq {
+		if err := reject(c, req.Filters); err != nil {
+			return &RequestError{ID: req.subID, Err: err}
+		}
+	}
+	return nil
+}
+
+// rejectReq wraps the relay RejectReq method and makes them accessible to the client.
+func (c *Client) rejectCount(count *CountRequest) *RequestError {
+	for _, reject := range c.relay.RejectCount {
+		if err := reject(c, count.Filters); err != nil {
+			return &RequestError{ID: count.subID, Err: err}
 		}
 	}
 	return nil
@@ -270,9 +274,31 @@ func (c *Client) read() {
 			}
 
 			req.client = c
-			sub := newSubscription(req)
+			sub := req.Subscription()
 
 			if err := c.relay.enqueue(req); err != nil {
+				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				continue
+			}
+
+			c.openSubscription(sub)
+
+		case "COUNT":
+			count, err := ParseCountRequest(json)
+			if err != nil {
+				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				continue
+			}
+
+			if err := c.rejectCount(count); err != nil {
+				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				continue
+			}
+
+			count.client = c
+			sub := count.Subscription()
+
+			if err := c.relay.enqueue(count); err != nil {
 				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}

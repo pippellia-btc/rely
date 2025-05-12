@@ -13,7 +13,10 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-var ErrOverloaded = errors.New("the relay is overloaded, please try again later")
+var (
+	ErrOverloaded       = errors.New("the relay is overloaded, please try again later")
+	ErrUnsupportedNIP45 = errors.New("NIP-45 COUNT is not supported")
+)
 
 const (
 	DefaultWriteWait      time.Duration = 10 * time.Second
@@ -55,7 +58,10 @@ type RelayFunctions struct {
 	RejectEvent []func(*Client, *nostr.Event) error
 
 	// the filters are accepted if and only if err is nil. All functions MUST be thread-safe.
-	RejectFilters []func(*Client, nostr.Filters) error
+	RejectReq []func(*Client, nostr.Filters) error
+
+	// the filters are accepted if and only if err is nil. All functions MUST be thread-safe.
+	RejectCount []func(*Client, nostr.Filters) error
 
 	// the action the relay performs after establishing a connection with the specified client.
 	OnConnect func(*Client) error
@@ -63,18 +69,22 @@ type RelayFunctions struct {
 	// the action the relay performs on an EVENT coming from the specified client.
 	OnEvent func(*Client, *nostr.Event) error
 
-	// the action the relay performs on the filters of a REQ coming from the specified client.
-	OnFilters func(context.Context, *Client, nostr.Filters) ([]nostr.Event, error)
+	// the action the relay performs on a REQ coming from the specified client.
+	OnReq func(context.Context, *Client, nostr.Filters) ([]nostr.Event, error)
+
+	// the action the relay performs on a COUNT coming from the specified client.
+	OnCount func(context.Context, *Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
 // NewRelayFunctions that only logs stuff, to avoid panicking on a nil method.
 func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
-		OnConnect:        func(c *Client) error { return nil },
-		OnEvent:          logEvent,
-		OnFilters:        logFilters,
 		RejectConnection: []func(Stats, *http.Request) error{RecentFailure},
 		RejectEvent:      []func(*Client, *nostr.Event) error{InvalidID, InvalidSignature},
+		OnConnect:        func(c *Client) error { return nil },
+		OnEvent:          logEvent,
+		OnReq:            logFilters,
+		OnCount:          nip45Unsupported,
 	}
 }
 
@@ -129,7 +139,7 @@ func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessa
 
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
 // Customize its structure with functional options (e.g., [WithDomain], [WithPingPeriod]).
-// Customize its behaviour by writing OnEvent, OnFilters and other [RelayFunctions].
+// Customize its behaviour by writing OnEvent, OnReq and other [RelayFunctions].
 //
 // Example:
 //
@@ -194,7 +204,7 @@ func (r *Relay) validate() {
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
 // It's a blocking operation, that stops only when the context get cancelled.
 // Use [Relay.Start] if you don't want to listen and serve right away.
-// Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
+// Customize its behaviour by writing OnConnect, OnEvent, OnReq and other [RelayFunctions].
 func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	r.Start(ctx)
 	exitErr := make(chan error, 1)
@@ -224,7 +234,7 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 }
 
 // Start the relay in a separate goroutine. The relay will later need to be served using http.ListenAndServe.
-// Customize its behaviour by writing OnConnect, OnEvent, OnFilters and other [RelayFunctions].
+// Customize its behaviour by writing OnConnect, OnEvent, OnReq and other [RelayFunctions].
 func (r *Relay) Start(ctx context.Context) {
 	go r.start(ctx)
 }
@@ -286,10 +296,10 @@ func (r *Relay) start(ctx context.Context) {
 				}
 
 			case *ReqRequest:
-				events, err := r.OnFilters(request.ctx, request.client, request.Filters)
+				events, err := r.OnReq(request.ctx, request.client, request.Filters)
 				if err != nil {
 					if request.ctx.Err() == nil {
-						// the error was NOT caused by the user cancelling the request, so we send a CLOSE
+						// the error was NOT caused by the user cancelling the REQ, so we send a CLOSED
 						request.client.send(ClosedResponse{ID: request.ID(), Reason: err.Error()})
 					}
 
@@ -300,8 +310,22 @@ func (r *Relay) start(ctx context.Context) {
 				for _, event := range events {
 					request.client.send(EventResponse{ID: request.ID(), Event: &event})
 				}
-
 				request.client.send(EoseResponse{ID: request.ID()})
+
+			case *CountRequest:
+				count, approx, err := r.OnCount(request.ctx, request.client, request.Filters)
+				if err != nil {
+					if request.ctx.Err() == nil {
+						// the error was NOT caused by the user cancelling the COUNT, so we send a CLOSED
+						request.client.send(ClosedResponse{ID: request.ID(), Reason: err.Error()})
+					}
+
+					request.client.closeSubscription(request.ID())
+					continue
+				}
+
+				request.client.send(CountResponse{ID: request.ID(), countPayload: countPayload{Count: count, Approx: approx}})
+				request.client.closeSubscription(request.ID())
 			}
 		}
 	}

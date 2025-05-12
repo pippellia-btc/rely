@@ -11,13 +11,14 @@ import (
 
 var (
 	ErrGeneric         = errors.New(`the request must be a JSON array with a length greater than two`)
-	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ', 'CLOSE' and 'AUTH'`)
+	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ', 'CLOSE', 'COUNT' and 'AUTH'`)
 
 	ErrInvalidEventRequest   = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
 	ErrInvalidEventID        = errors.New(`invalid event ID`)
 	ErrInvalidEventSignature = errors.New(`invalid event signature`)
 
 	ErrInvalidReqRequest     = errors.New(`a REQ request must follow this format: ['REQ', {subscription_id}, {filter1}, {filter2}, ...]`)
+	ErrInvalidCountRequest   = errors.New(`a COUNT request must follow this format: ['COUNT', {subscription_id}, {filter1}, {filter2}, ...]`)
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
 
 	ErrInvalidAuthRequest   = errors.New(`an AUTH request must follow this format: ['AUTH', {event_JSON}]`)
@@ -52,6 +53,31 @@ type ReqRequest struct {
 
 func (r *ReqRequest) ID() string    { return r.subID }
 func (r *ReqRequest) From() *Client { return r.client }
+
+// Subscription creates the subscription associated with the [ReqRequest].
+func (r *ReqRequest) Subscription() Subscription {
+	sub := Subscription{Type: "REQ", ID: r.subID, Filters: r.Filters}
+	r.ctx, sub.cancel = context.WithCancel(context.Background())
+	return sub
+}
+
+type CountRequest struct {
+	subID string          // the subscription ID
+	ctx   context.Context // will be cancelled when the subscription is closed
+
+	client  *Client // the client where the request come from
+	Filters nostr.Filters
+}
+
+func (c *CountRequest) ID() string    { return c.subID }
+func (c *CountRequest) From() *Client { return c.client }
+
+// Subscription creates the subscription associated with the [CountRequest].
+func (c *CountRequest) Subscription() Subscription {
+	sub := Subscription{Type: "COUNT", ID: c.subID, Filters: c.Filters}
+	c.ctx, sub.cancel = context.WithCancel(context.Background())
+	return sub
+}
 
 type CloseRequest struct {
 	subID string // the subscription ID
@@ -139,23 +165,40 @@ func ParseAuthRequest(array []json.RawMessage) (*AuthRequest, *RequestError) {
 
 // ParseReqRequest parses the json array into an [ReqRequest], validating the subscription ID.
 func ParseReqRequest(array []json.RawMessage) (*ReqRequest, *RequestError) {
-	ID, err := parseID(array[0])
-	if err != nil {
-		return nil, err
+	ID, err1 := parseID(array[0])
+	if err1 != nil {
+		return nil, err1
 	}
 
 	if len(array) < 2 {
 		return nil, &RequestError{ID: ID, Err: ErrInvalidReqRequest}
 	}
 
-	filters := make(nostr.Filters, len(array)-1)
-	for i, filter := range array[1:] {
-		if err := json.Unmarshal(filter, &filters[i]); err != nil {
-			return nil, &RequestError{ID: ID, Err: fmt.Errorf("%w: failed to decode filter at index %d: %s", ErrInvalidReqRequest, i, err)}
-		}
+	filters, err2 := parseFilters(array[1:])
+	if err2 != nil {
+		return nil, &RequestError{ID: ID, Err: err2}
 	}
 
 	return &ReqRequest{subID: ID, Filters: filters}, nil
+}
+
+// ParseCountRequest parses the json array into an [CountRequest], validating the subscription ID.
+func ParseCountRequest(array []json.RawMessage) (*CountRequest, *RequestError) {
+	ID, err1 := parseID(array[0])
+	if err1 != nil {
+		return nil, err1
+	}
+
+	if len(array) < 2 {
+		return nil, &RequestError{ID: ID, Err: ErrInvalidCountRequest}
+	}
+
+	filters, err2 := parseFilters(array[1:])
+	if err2 != nil {
+		return nil, &RequestError{ID: ID, Err: err2}
+	}
+
+	return &CountRequest{subID: ID, Filters: filters}, nil
 }
 
 // ParseCloseRequest parses the json array into an [CloseRequest], validating the subscription ID.
@@ -178,6 +221,17 @@ func parseID(data json.RawMessage) (string, *RequestError) {
 	}
 
 	return ID, nil
+}
+
+func parseFilters(array []json.RawMessage) (filters nostr.Filters, err error) {
+	filters = make(nostr.Filters, len(array))
+	for i, filter := range array {
+		if err := json.Unmarshal(filter, &filters[i]); err != nil {
+			return nil, fmt.Errorf("%w: failed to decode filter at index %d: %s", ErrInvalidReqRequest, i, err)
+		}
+	}
+
+	return filters, nil
 }
 
 type Response = json.Marshaler
@@ -232,4 +286,18 @@ type AuthResponse struct {
 
 func (a AuthResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string{"AUTH", a.Challenge})
+}
+
+type CountResponse struct {
+	ID string
+	countPayload
+}
+
+type countPayload struct {
+	Count  int64 `json:"count"`
+	Approx bool  `json:"approximate,omitempty"`
+}
+
+func (c CountResponse) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]any{"COUNT", c.ID, c.countPayload})
 }

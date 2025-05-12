@@ -49,7 +49,7 @@ func TestRandom(t *testing.T) {
 		)
 		relay.OnConnect = dummyOnConnect
 		relay.OnEvent = dummyOnEvent
-		relay.OnFilters = dummyOnFilters
+		relay.OnReq = dummyOnReq
 
 		go displayStats(ctx, relay)
 		go clientMadness(ctx, errChan, addr)
@@ -89,7 +89,7 @@ func dummyOnEvent(c *rely.Client, e *nostr.Event) error {
 	return nil
 }
 
-func dummyOnFilters(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event, error) {
+func dummyOnReq(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event, error) {
 	filterCounter.Add(int32(len(f)))
 
 	if rg.Float32() < relayFailProbability {

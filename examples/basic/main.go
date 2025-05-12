@@ -17,11 +17,9 @@ func main() {
 	defer cancel()
 	go rely.HandleSignals(cancel)
 
-	relay := rely.NewRelay(
-		rely.WithMaxMessageSize(10),
-	)
+	relay := rely.NewRelay()
 	relay.OnEvent = Save
-	relay.OnFilters = Query
+	relay.OnReq = Query
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)

@@ -124,6 +124,10 @@ func IsUnexpectedClose(err error) bool {
 		websocket.CloseAbnormalClosure)
 }
 
+func nip45Unsupported(context.Context, *Client, nostr.Filters) (int64, bool, error) {
+	return 0, false, ErrUnsupportedNIP45
+}
+
 func logEvent(c *Client, e *nostr.Event) error {
 	log.Printf("received eventID %s from IP %s", e.ID, c.ip)
 	return nil

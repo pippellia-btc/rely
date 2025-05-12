@@ -27,7 +27,7 @@ func main() {
 		WithDomain("example.com"), // the domain must be set to correctly validate NIP-42
 	)
 
-	relay.RejectFilters = append(relay.RejectFilters, AuthedOnDMs)
+	relay.RejectReq = append(relay.RejectReq, AuthedOnDMs)
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)

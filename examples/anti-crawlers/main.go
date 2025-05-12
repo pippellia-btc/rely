@@ -20,7 +20,7 @@ func main() {
 	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()
-	relay.RejectFilters = append(relay.RejectFilters, TooMany)
+	relay.RejectReq = append(relay.RejectReq, TooMany)
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)
