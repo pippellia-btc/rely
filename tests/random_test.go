@@ -17,12 +17,13 @@ import (
 )
 
 var (
-	rg                 *rand.Rand
-	httpRequestCounter atomic.Int32
-	clientCounter      atomic.Int32
-	eventCounter       atomic.Int32
-	filterCounter      atomic.Int32
-	abnormalClosures   atomic.Int32
+	rg               *rand.Rand
+	httpRequests     atomic.Int32
+	abnormalClosures atomic.Int32
+	clients          atomic.Int32
+	events           atomic.Int32
+	reqs             atomic.Int32
+	counts           atomic.Int32
 )
 
 const (
@@ -50,6 +51,7 @@ func TestRandom(t *testing.T) {
 		relay.OnConnect = dummyOnConnect
 		relay.OnEvent = dummyOnEvent
 		relay.OnReq = dummyOnReq
+		relay.OnCount = dummyOnCount
 
 		go displayStats(ctx, relay)
 		go clientMadness(ctx, errChan, addr)
@@ -66,39 +68,46 @@ func TestRandom(t *testing.T) {
 }
 
 func dummyOnConnect(c *rely.Client) error {
-	clientCounter.Add(1)
-
+	clients.Add(1)
 	if rg.Float32() < relayFailProbability {
 		c.Disconnect()
 		return nil
 	}
 
-	_ = fibonacci(25) // simulate some work
+	fibonacci(25) // simulate some work
 	return nil
 }
 
 func dummyOnEvent(c *rely.Client, e *nostr.Event) error {
-	eventCounter.Add(1)
-
+	events.Add(1)
 	if rg.Float32() < relayFailProbability {
 		c.Disconnect()
 		return fmt.Errorf("failed")
 	}
 
-	_ = fibonacci(25) // simulate some work
+	fibonacci(25) // simulate some work
 	return nil
 }
 
 func dummyOnReq(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event, error) {
-	filterCounter.Add(int32(len(f)))
-
+	reqs.Add(1)
 	if rg.Float32() < relayFailProbability {
 		c.Disconnect()
 		return nil, fmt.Errorf("failed")
 	}
 
-	_ = fibonacci(25) // simulate some work
+	fibonacci(25) // simulate some work
 	return randomSlice(100, randomEvent), nil
+}
+func dummyOnCount(ctx context.Context, c *rely.Client, f nostr.Filters) (int64, bool, error) {
+	counts.Add(1)
+	if rg.Float32() < relayFailProbability {
+		c.Disconnect()
+		return 0, false, fmt.Errorf("failed")
+	}
+
+	fibonacci(25) // simulate some work
+	return rg.Int64(), true, nil
 }
 
 type client struct {
@@ -110,23 +119,32 @@ type client struct {
 }
 
 func newClient(conn *websocket.Conn, errChan chan error) *client {
-	switch {
-	case rg.Float32() < 0.5:
+	switch rg.IntN(3) {
+	case 0:
 		// client that generates EVENTs
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
 			generateRequest:  randomEventRequest,
-			validateResponse: validateResponseAfterEvent,
+			validateResponse: validateLabel([]string{"OK"}),
 		}
 
-	default:
+	case 1:
 		// client that generates REQs
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
 			generateRequest:  randomReqRequest,
-			validateResponse: validateResponseAfterReq,
+			validateResponse: validateLabel([]string{"EOSE", "CLOSED", "EVENT"}),
+		}
+
+	default:
+		// client that generates COUNTs
+		return &client{
+			conn:             conn,
+			errChan:          errChan,
+			generateRequest:  randomCountRequest,
+			validateResponse: validateLabel([]string{"CLOSED", "COUNT"}),
 		}
 	}
 }
@@ -153,7 +171,7 @@ func clientMadness(
 			return
 
 		case <-ticker.C:
-			httpRequestCounter.Add(1)
+			httpRequests.Add(1)
 
 			conn, resp, err := websocket.DefaultDialer.Dial(URL, nil)
 			if err != nil {
@@ -267,7 +285,7 @@ func (c *client) read(
 }
 
 func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 14
+	const statsLines = 15
 	var first = true
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -287,11 +305,12 @@ func displayStats(ctx context.Context, r *rely.Relay) {
 			}
 
 			fmt.Println("---------------- test -----------------")
-			fmt.Printf("total http requests: %d\n", httpRequestCounter.Load())
+			fmt.Printf("total http requests: %d\n", httpRequests.Load())
 			fmt.Printf("abnormal closures: %d\n", abnormalClosures.Load())
-			fmt.Printf("total clients: %d\n", clientCounter.Load())
-			fmt.Printf("processed events: %d\n", eventCounter.Load())
-			fmt.Printf("processed filters: %d\n", filterCounter.Load())
+			fmt.Printf("total clients: %d\n", clients.Load())
+			fmt.Printf("processed events: %d\n", events.Load())
+			fmt.Printf("processed reqs: %d\n", reqs.Load())
+			fmt.Printf("processed counts: %d\n", counts.Load())
 			r.PrintStats()
 			first = false
 		}

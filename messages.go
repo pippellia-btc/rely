@@ -125,9 +125,9 @@ func (e *RequestError) Is(target error) bool {
 	return t.ID == e.ID && errors.Is(e.Err, t.Err)
 }
 
-// JSONArray decodes the message received from the websocket into a label and json array.
-// Based on this label (e.g. "EVENT"), the caller can parse the json into its own structure (e.g. via [ParseEventRequest])
-func JSONArray(data []byte) (label string, array []json.RawMessage, err error) {
+// parseJSON decodes the message received from the websocket into a label and json array.
+// Based on this label (e.g. "EVENT"), the caller can parse the json into its own structure (e.g. via [parseEvent])
+func parseJSON(data []byte) (label string, array []json.RawMessage, err error) {
 	if err := json.Unmarshal(data, &array); err != nil {
 		return "", nil, fmt.Errorf("%w: %w", ErrGeneric, err)
 	}
@@ -143,8 +143,8 @@ func JSONArray(data []byte) (label string, array []json.RawMessage, err error) {
 	return label, array[1:], nil
 }
 
-// ParseEventRequest parses the json array into an [EventRequest].
-func ParseEventRequest(array []json.RawMessage) (*EventRequest, *RequestError) {
+// parseEvent parses the json array into an [EventRequest].
+func parseEvent(array []json.RawMessage) (*EventRequest, *RequestError) {
 	var event nostr.Event
 	if err := json.Unmarshal(array[0], &event); err != nil {
 		return nil, &RequestError{Err: fmt.Errorf("%w: %w", ErrInvalidEventRequest, err)}
@@ -153,8 +153,8 @@ func ParseEventRequest(array []json.RawMessage) (*EventRequest, *RequestError) {
 	return &EventRequest{Event: &event}, nil
 }
 
-// ParseAuthRequest parses the json array into an [AuthRequest].
-func ParseAuthRequest(array []json.RawMessage) (*AuthRequest, *RequestError) {
+// parseAuth parses the json array into an [AuthRequest].
+func parseAuth(array []json.RawMessage) (*AuthRequest, *RequestError) {
 	var auth nostr.Event
 	if err := json.Unmarshal(array[0], &auth); err != nil {
 		return nil, &RequestError{Err: fmt.Errorf("%w: %w", ErrInvalidAuthRequest, err)}
@@ -163,8 +163,8 @@ func ParseAuthRequest(array []json.RawMessage) (*AuthRequest, *RequestError) {
 	return &AuthRequest{Event: &auth}, nil
 }
 
-// ParseReqRequest parses the json array into an [ReqRequest], validating the subscription ID.
-func ParseReqRequest(array []json.RawMessage) (*ReqRequest, *RequestError) {
+// parseReq parses the json array into an [ReqRequest], validating the subscription ID.
+func parseReq(array []json.RawMessage) (*ReqRequest, *RequestError) {
 	ID, err1 := parseID(array[0])
 	if err1 != nil {
 		return nil, err1
@@ -182,8 +182,8 @@ func ParseReqRequest(array []json.RawMessage) (*ReqRequest, *RequestError) {
 	return &ReqRequest{subID: ID, Filters: filters}, nil
 }
 
-// ParseCountRequest parses the json array into an [CountRequest], validating the subscription ID.
-func ParseCountRequest(array []json.RawMessage) (*CountRequest, *RequestError) {
+// parseCount parses the json array into an [CountRequest], validating the subscription ID.
+func parseCount(array []json.RawMessage) (*CountRequest, *RequestError) {
 	ID, err1 := parseID(array[0])
 	if err1 != nil {
 		return nil, err1
@@ -201,8 +201,8 @@ func ParseCountRequest(array []json.RawMessage) (*CountRequest, *RequestError) {
 	return &CountRequest{subID: ID, Filters: filters}, nil
 }
 
-// ParseCloseRequest parses the json array into an [CloseRequest], validating the subscription ID.
-func ParseCloseRequest(array []json.RawMessage) (*CloseRequest, *RequestError) {
+// parseClose parses the json array into an [CloseRequest], validating the subscription ID.
+func parseClose(array []json.RawMessage) (*CloseRequest, *RequestError) {
 	ID, err := parseID(array[0])
 	if err != nil {
 		return nil, err

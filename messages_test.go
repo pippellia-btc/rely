@@ -12,7 +12,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-func TestParse(t *testing.T) {
+func TestParseJSON(t *testing.T) {
 	tests := []struct {
 		name string
 		data []byte
@@ -47,7 +47,7 @@ func TestParse(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			label, array, err := JSONArray(test.data)
+			label, array, err := parseJSON(test.data)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -63,7 +63,7 @@ func TestParse(t *testing.T) {
 	}
 }
 
-func TestParseToEventRequest(t *testing.T) {
+func TestParseEvent(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     []byte
@@ -89,12 +89,12 @@ func TestParseToEventRequest(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := JSONArray(test.data)
+			_, json, err := parseJSON(test.data)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			event, err := ParseEventRequest(json)
+			event, err := parseEvent(json)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -106,7 +106,7 @@ func TestParseToEventRequest(t *testing.T) {
 	}
 }
 
-func TestParseToReqRequest(t *testing.T) {
+func TestParseReq(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     []byte
@@ -142,12 +142,12 @@ func TestParseToReqRequest(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := JSONArray(test.data)
+			_, json, err := parseJSON(test.data)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			req, err := ParseReqRequest(json)
+			req, err := parseReq(json)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -159,7 +159,7 @@ func TestParseToReqRequest(t *testing.T) {
 	}
 }
 
-func TestParseToCountRequest(t *testing.T) {
+func TestParseCount(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     []byte
@@ -195,12 +195,12 @@ func TestParseToCountRequest(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := JSONArray(test.data)
+			_, json, err := parseJSON(test.data)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			count, err := ParseCountRequest(json)
+			count, err := parseCount(json)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -212,7 +212,7 @@ func TestParseToCountRequest(t *testing.T) {
 	}
 }
 
-func TestParseToCloseRequest(t *testing.T) {
+func TestParseClose(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     []byte
@@ -243,12 +243,12 @@ func TestParseToCloseRequest(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := JSONArray(test.data)
+			_, json, err := parseJSON(test.data)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			close, err := ParseCloseRequest(json)
+			close, err := parseClose(json)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -260,7 +260,7 @@ func TestParseToCloseRequest(t *testing.T) {
 	}
 }
 
-func TestParseAuthRequest(t *testing.T) {
+func TestParseAuth(t *testing.T) {
 	tests := []struct {
 		name     string
 		data     []byte
@@ -281,12 +281,12 @@ func TestParseAuthRequest(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := JSONArray(test.data)
+			_, json, err := parseJSON(test.data)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			auth, err := ParseAuthRequest(json)
+			auth, err := parseAuth(json)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}

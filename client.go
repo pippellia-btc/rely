@@ -236,7 +236,7 @@ func (c *Client) read() {
 			return
 		}
 
-		label, json, err := JSONArray(data)
+		label, json, err := parseJSON(data)
 		if err != nil {
 			// if unable to parse the message, send a generic NOTICE
 			c.send(NoticeResponse{Message: err.Error()})
@@ -245,7 +245,7 @@ func (c *Client) read() {
 
 		switch label {
 		case "EVENT":
-			event, err := ParseEventRequest(json)
+			event, err := parseEvent(json)
 			if err != nil {
 				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
@@ -262,7 +262,7 @@ func (c *Client) read() {
 			}
 
 		case "REQ":
-			req, err := ParseReqRequest(json)
+			req, err := parseReq(json)
 			if err != nil {
 				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
 				continue
@@ -284,7 +284,7 @@ func (c *Client) read() {
 			c.openSubscription(sub)
 
 		case "COUNT":
-			count, err := ParseCountRequest(json)
+			count, err := parseCount(json)
 			if err != nil {
 				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
 				continue
@@ -306,7 +306,7 @@ func (c *Client) read() {
 			c.openSubscription(sub)
 
 		case "CLOSE":
-			close, err := ParseCloseRequest(json)
+			close, err := parseClose(json)
 			if err != nil {
 				c.send(NoticeResponse{Message: err.Error()})
 				continue
@@ -315,7 +315,7 @@ func (c *Client) read() {
 			c.closeSubscription(close.subID)
 
 		case "AUTH":
-			auth, err := ParseAuthRequest(json)
+			auth, err := parseAuth(json)
 			if err != nil {
 				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue

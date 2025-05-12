@@ -20,8 +20,24 @@ func randomEventRequest() ([]byte, error) {
 }
 
 func randomReqRequest() ([]byte, error) {
-	ID := randomString(rg.IntN(80))
+	ID := randomString(rg.IntN(70))
 	request := []any{"REQ", ID}
+
+	filters := rg.IntN(5)
+	for i := 0; i < filters; i++ {
+		request = append(request, randomFilter())
+	}
+
+	data, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate event request: %w", err)
+	}
+	return data, nil
+}
+
+func randomCountRequest() ([]byte, error) {
+	ID := randomString(rg.IntN(70))
+	request := []any{"COUNT", ID}
 
 	filters := rg.IntN(5)
 	for i := 0; i < filters; i++ {
@@ -134,29 +150,31 @@ func BenchmarkFibonacci(b *testing.B) {
 	}
 }
 
-func validateResponseAfterEvent(data []byte) error {
-	label, _, err := rely.JSONArray(data)
-	if err != nil {
-		return fmt.Errorf("%w: data '%v'", err, string(data))
-	}
+func validateLabel(labels []string) func([]byte) error {
+	return func(data []byte) error {
+		label, err := parseLabel(data)
+		if err != nil {
+			return fmt.Errorf("%w: data '%v'", err, string(data))
+		}
 
-	if label != "OK" {
-		return fmt.Errorf("label is not the expected 'OK': %v", string(data))
-	}
+		if !slices.Contains(labels, label) {
+			return fmt.Errorf("label is not among the expected labels %v: data %v", labels, string(data))
+		}
 
-	return nil
+		return nil
+	}
 }
 
-func validateResponseAfterReq(data []byte) error {
-	label, _, err := rely.JSONArray(data)
-	if err != nil {
-		return fmt.Errorf("%w: data '%v'", err, string(data))
+func parseLabel(data []byte) (string, error) {
+	var array []json.RawMessage
+	if err := json.Unmarshal(data, &array); err != nil {
+		return "", fmt.Errorf("%w: %w", rely.ErrGeneric, err)
 	}
 
-	expected := []string{"EOSE", "CLOSED", "EVENT"}
-	if !slices.Contains(expected, label) {
-		return fmt.Errorf("label is not among the expected labels %v: data %v", expected, string(data))
+	var label string
+	if err := json.Unmarshal(array[0], &label); err != nil {
+		return "", fmt.Errorf("%w: %w", rely.ErrGeneric, err)
 	}
 
-	return nil
+	return label, nil
 }
