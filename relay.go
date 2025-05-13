@@ -319,7 +319,7 @@ func (r *Relay) start(ctx context.Context) {
 					continue
 				}
 
-				request.client.send(countResponse{ID: request.ID(), countPayload: countPayload{Count: count, Approx: approx}})
+				request.client.send(countResponse{ID: request.ID(), Count: count, Approx: approx})
 				request.client.closeSubscription(request.ID())
 			}
 		}

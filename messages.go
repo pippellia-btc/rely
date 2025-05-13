@@ -289,15 +289,16 @@ func (a authResponse) MarshalJSON() ([]byte, error) {
 }
 
 type countResponse struct {
-	ID string
-	countPayload
-}
-
-type countPayload struct {
-	Count  int64 `json:"count"`
-	Approx bool  `json:"approximate,omitempty"`
+	ID     string
+	Count  int64
+	Approx bool
 }
 
 func (c countResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]any{"COUNT", c.ID, c.countPayload})
+	type payload struct {
+		Count  int64 `json:"count"`
+		Approx bool  `json:"approximate,omitempty"`
+	}
+
+	return json.Marshal([]any{"COUNT", c.ID, payload{Count: c.Count, Approx: c.Approx}})
 }
