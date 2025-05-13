@@ -30,7 +30,7 @@ func main() {
 }
 
 func Count(ctx context.Context, c *rely.Client, f nostr.Filters) (count int64, approx bool, err error) {
-	log.Printf("received filters %v", f)
+	log.Printf("received count with filters %v", f)
 	count = rand.Int64N(10000)
 	return count, (count % 2) == 1, nil
 }
