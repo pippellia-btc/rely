@@ -44,15 +44,15 @@ func AuthedOnDMs(client rely.Client, filters nostr.Filters) error {
 		}
 
 		pubkey := client.Pubkey()
-		if pubkey == nil {
+		if pubkey == "" {
 			// the client is not authenticated, so it can't request DMs
 			client.SendAuthChallenge()
 			return errors.New("auth-required: you must be authenticated to query for DMs")
 		}
 
-		if len(filter.Authors) != 1 || filter.Authors[0] != *pubkey {
+		if len(filter.Authors) != 1 || filter.Authors[0] != pubkey {
 			// the client is requesting DMs of other people
-			return fmt.Errorf("restricted: you can only request the DMs of the pubkey %s", *pubkey)
+			return fmt.Errorf("restricted: you can only request the DMs of the pubkey %s", pubkey)
 		}
 	}
 

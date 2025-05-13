@@ -32,9 +32,9 @@ type Client interface {
 	// IP returns the IP address of the client
 	IP() string
 
-	// Pubkey returns the pubkey the client used to authenticate with NIP-42. If the client didn't auth, it returns nil.
+	// Pubkey returns the pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
 	// To initiate the authentication, call [Client.SendAuthChallenge]
-	Pubkey() *string
+	Pubkey() string
 
 	// SendAuthChallenge sends the client a newly generated AUTH challenge.
 	// This resets the authentication state: any previously authenticated pubkey is cleared,
@@ -54,7 +54,7 @@ type client struct {
 	subscriptions []Subscription
 
 	// NIP-42
-	pubkey    *string
+	pubkey    string
 	challenge string
 
 	relay  *Relay
@@ -77,19 +77,14 @@ func (c *client) Subscriptions() []Subscription {
 
 func (c *client) setPubkey(pubkey string) {
 	c.mu.Lock()
-	c.pubkey = &pubkey
+	c.pubkey = pubkey
 	c.mu.Unlock()
 }
 
-func (c *client) Pubkey() *string {
+func (c *client) Pubkey() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
-	if c.pubkey == nil {
-		return nil
-	}
-	pubkey := *c.pubkey
-	return &pubkey
+	return c.pubkey
 }
 
 func (c *client) SendAuthChallenge() {
@@ -99,7 +94,7 @@ func (c *client) SendAuthChallenge() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.pubkey = nil
+	c.pubkey = ""
 	c.challenge = hex.EncodeToString(challenge)
 	c.send(AuthResponse{Challenge: c.challenge})
 }

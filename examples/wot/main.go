@@ -66,12 +66,12 @@ func main() {
 
 	relay.OnEvent = func(c rely.Client, e *nostr.Event) error {
 		pubkey := c.Pubkey()
-		if pubkey == nil {
+		if pubkey == "" {
 			c.SendAuthChallenge()
 			return ErrAuthRequired
 		}
 
-		rank, exists := cache.Rank(*pubkey)
+		rank, exists := cache.Rank(pubkey)
 		if !exists {
 			// If the client IP has enough tokens, the pubkey is queued for ranking by Vertex;
 			// otherwise we disconnect the client as this is probably an attacker trying to waste our backend budget.
@@ -80,10 +80,10 @@ func main() {
 				return ErrRateLimited
 			}
 
-			cache.refresh <- *pubkey
+			cache.refresh <- pubkey
 		}
 
-		if !limiter.Allow(*pubkey, pkRefill(rank)) {
+		if !limiter.Allow(pubkey, pkRefill(rank)) {
 			return ErrRateLimited
 		}
 
