@@ -22,7 +22,7 @@ var (
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
 
 	ErrInvalidAuthRequest   = errors.New(`an AUTH request must follow this format: ['AUTH', {event_JSON}]`)
-	ErrInvalidTimestamp     = errors.New(`createdAt must be within one minute from the current time`)
+	ErrInvalidTimestamp     = errors.New(`created_at must be within one minute from the current time`)
 	ErrInvalidAuthKind      = errors.New(`invalid AUTH kind`)
 	ErrInvalidAuthChallenge = errors.New(`invalid AUTH challenge`)
 	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
