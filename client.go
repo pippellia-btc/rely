@@ -18,13 +18,6 @@ import (
 
 const authChallengeBytes = 16
 
-type Subscription struct {
-	ID      string
-	Type    string // either "REQ" or "COUNT"
-	Filters nostr.Filters
-	cancel  context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
-}
-
 // The Client where the request comes from. All methods are safe for concurrent use.
 type Client interface {
 	// Subscriptions returns the currently active subscriptions of the client
@@ -44,6 +37,13 @@ type Client interface {
 
 	// Disconnect the client, closing its websocket connection
 	Disconnect()
+}
+
+type Subscription struct {
+	ID      string
+	Type    string // either "REQ" or "COUNT"
+	Filters nostr.Filters
+	cancel  context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
 }
 
 // client is a middleman between the websocket connection and the [Relay].

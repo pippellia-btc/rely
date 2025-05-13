@@ -283,14 +283,10 @@ func (r *Relay) start(ctx context.Context) {
 				}
 				request.client.send(okResponse{ID: request.ID(), Saved: true})
 
-				// send the event to all connected clients whose subscriptions match it
 				for client := range r.clients {
-					if client == request.client {
-						continue
-					}
-
-					if match, subID := client.matchingSubscription(request.Event); match {
-						client.send(eventResponse{ID: subID, Event: request.Event})
+					// send the event to all connected clients whose subscriptions match it
+					if match, ID := client.matchingSubscription(request.Event); match {
+						client.send(eventResponse{ID: ID, Event: request.Event})
 					}
 				}
 
