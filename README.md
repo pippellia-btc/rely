@@ -40,8 +40,7 @@ func main() {
 }
 
 func BadIP(s Stats, req *http.Request) error {
-	IP := IP(req)
-	if slices.Contains(blacklist, IP) {
+	if slices.Contains(blacklist, IP(req)) {
 		return fmt.Errorf("you are not welcome here")
 	}
 	return nil
