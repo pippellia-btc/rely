@@ -58,13 +58,13 @@ func main() {
 		return ErrRateLimited
 	})
 
-	relay.OnConnect = func(c *rely.Client) error {
+	relay.OnConnect = func(c rely.Client) error {
 		// send an AUTH challange as soon as the client connects
 		c.SendAuthChallenge()
 		return nil
 	}
 
-	relay.OnEvent = func(c *rely.Client, e *nostr.Event) error {
+	relay.OnEvent = func(c rely.Client, e *nostr.Event) error {
 		pubkey := c.Pubkey()
 		if pubkey == nil {
 			c.SendAuthChallenge()

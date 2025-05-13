@@ -28,12 +28,12 @@ const (
 
 type Relay struct {
 	// the set of active clients
-	clients      map[*Client]struct{}
+	clients      map[*client]struct{}
 	clientsCount atomic.Int64
 
 	// the channels used to register/unregister a client
-	register   chan *Client
-	unregister chan *Client
+	register   chan *client
+	unregister chan *client
 
 	// the queue for EVENTs and REQs
 	queue chan Request
@@ -56,33 +56,33 @@ type RelayFunctions struct {
 	RejectConnection []func(Stats, *http.Request) error
 
 	// an event is accepted if and only if err is nil. All functions MUST be thread-safe.
-	RejectEvent []func(*Client, *nostr.Event) error
+	RejectEvent []func(Client, *nostr.Event) error
 
 	// the filters are accepted if and only if err is nil. All functions MUST be thread-safe.
-	RejectReq []func(*Client, nostr.Filters) error
+	RejectReq []func(Client, nostr.Filters) error
 
 	// the filters are accepted if and only if err is nil. All functions MUST be thread-safe.
-	RejectCount []func(*Client, nostr.Filters) error
+	RejectCount []func(Client, nostr.Filters) error
 
 	// the action the relay performs after establishing a connection with the specified client.
-	OnConnect func(*Client) error
+	OnConnect func(Client) error
 
 	// the action the relay performs on an EVENT coming from the specified client.
-	OnEvent func(*Client, *nostr.Event) error
+	OnEvent func(Client, *nostr.Event) error
 
 	// the action the relay performs on a REQ coming from the specified client.
-	OnReq func(context.Context, *Client, nostr.Filters) ([]nostr.Event, error)
+	OnReq func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
 
 	// the action the relay performs on a COUNT coming from the specified client.
-	OnCount func(context.Context, *Client, nostr.Filters) (count int64, approx bool, err error)
+	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
 // NewRelayFunctions that only logs stuff, to avoid panicking on a nil method.
 func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
 		RejectConnection: []func(Stats, *http.Request) error{RecentFailure},
-		RejectEvent:      []func(*Client, *nostr.Event) error{InvalidID, InvalidSignature},
-		OnConnect:        func(c *Client) error { return nil },
+		RejectEvent:      []func(Client, *nostr.Event) error{InvalidID, InvalidSignature},
+		OnConnect:        func(Client) error { return nil },
 		OnEvent:          logEvent,
 		OnReq:            logFilters,
 	}
@@ -151,9 +151,9 @@ func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessa
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
 		queue:            make(chan Request, 1000),
-		clients:          make(map[*Client]struct{}, 100),
-		register:         make(chan *Client, 100),
-		unregister:       make(chan *Client, 100),
+		clients:          make(map[*client]struct{}, 100),
+		register:         make(chan *client, 100),
+		unregister:       make(chan *client, 100),
 		RelayFunctions:   newRelayFunctions(),
 		websocketOptions: newWebsocketOptions(),
 	}
@@ -259,7 +259,7 @@ func (r *Relay) start(ctx context.Context) {
 			delete(r.clients, client)
 			close(client.toSend)
 
-			// perform batch unregistration to prevent [Client.Disconnect] from getting stuck
+			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
 			n := int64(len(r.unregister))
 			r.clientsCount.Add(-1 - n)
@@ -353,7 +353,7 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	http.Error(w, "Expected WebSocket connection", http.StatusUpgradeRequired)
 }
 
-// HandleWebsocket upgrades the http request to a websocket, creates a [Client], and registers it with the [Relay].
+// HandleWebsocket upgrades the http request to a websocket, creates a [client], and registers it with the [Relay].
 // The client will then read and write to the websocket in two separate goroutines, preventing multiple readers/writers.
 func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 	for _, reject := range r.RejectConnection {
@@ -369,7 +369,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	client := &Client{ip: IP(req), relay: r, conn: conn, toSend: make(chan Response, 100)}
+	client := &client{ip: IP(req), relay: r, conn: conn, toSend: make(chan Response, 100)}
 
 	select {
 	case r.register <- client:

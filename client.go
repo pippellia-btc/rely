@@ -22,13 +22,33 @@ type Subscription struct {
 	ID      string
 	Type    string // either "REQ" or "COUNT"
 	Filters nostr.Filters
-	cancel  context.CancelFunc // calling it cancels the context of the associated REQ
+	cancel  context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
 }
 
-// Client is a middleman between the websocket connection and the [Relay].
-// It's responsible for reading and validating the requests, and for writing the responses
+type Client interface {
+	// Subscriptions returns the currently active subscriptions of the client
+	Subscriptions() []Subscription
+
+	// IP returns the IP address of the client
+	IP() string
+
+	// Pubkey returns the pubkey the client used to authenticate with NIP-42. If the client didn't auth, it returns nil.
+	// To initiate the authentication, call [Client.SendAuthChallenge]
+	Pubkey() *string
+
+	// SendAuthChallenge sends the client a newly generated AUTH challenge.
+	// This resets the authentication state: any previously authenticated pubkey is cleared,
+	// and a new challenge is generated and sent
+	SendAuthChallenge()
+
+	// Disconnect the client, closing its websocket connection
+	Disconnect()
+}
+
+// client is a middleman between the websocket connection and the [Relay].
+// It's responsible for reading and validating the requests, and for writing the [Response]s
 // if they satisfy at least one [Subscription].
-type Client struct {
+type client struct {
 	mu            sync.RWMutex
 	ip            string
 	subscriptions []Subscription
@@ -44,11 +64,9 @@ type Client struct {
 	isUnregistering atomic.Bool
 }
 
-// IP returns the IP address of the client
-func (c *Client) IP() string { return c.ip }
+func (c *client) IP() string { return c.ip }
 
-// Subscriptions returns the currently active subscriptions of the client
-func (c *Client) Subscriptions() []Subscription {
+func (c *client) Subscriptions() []Subscription {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -57,15 +75,13 @@ func (c *Client) Subscriptions() []Subscription {
 	return subs
 }
 
-func (c *Client) setPubkey(pubkey string) {
+func (c *client) setPubkey(pubkey string) {
 	c.mu.Lock()
 	c.pubkey = &pubkey
 	c.mu.Unlock()
 }
 
-// Pubkey returns the pubkey the client used to authenticate with NIP-42. If the client didn't auth, it returns nil.
-// To initiate the authentication, call [Client.SendAuthChallenge].
-func (c *Client) Pubkey() *string {
+func (c *client) Pubkey() *string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -76,10 +92,7 @@ func (c *Client) Pubkey() *string {
 	return &pubkey
 }
 
-// SendAuthChallenge sends the client a newly generated AUTH challenge.
-// This resets the authentication state:
-// any previously authenticated pubkey is cleared, and a new challenge is generated and sent.
-func (c *Client) SendAuthChallenge() {
+func (c *client) SendAuthChallenge() {
 	challenge := make([]byte, AuthChallengeBytes)
 	rand.Read(challenge)
 
@@ -91,17 +104,14 @@ func (c *Client) SendAuthChallenge() {
 	c.send(AuthResponse{Challenge: c.challenge})
 }
 
-// Disconnect sends the client to the unregister queue if it's not already being unregistered.
-// There, it will be removed from the active clients and its channel will be closed.
-// This in turn will close the websocket connection.
-func (c *Client) Disconnect() {
+func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		c.relay.unregister <- c
 	}
 }
 
 // closeSubscription closes the subscription with the provided ID, if present.
-func (c *Client) closeSubscription(ID string) {
+func (c *client) closeSubscription(ID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -118,7 +128,7 @@ func (c *Client) closeSubscription(ID string) {
 // openSubscription registers the provided subscription with the client.
 // If a subscription with the same ID already exists, the existing subscription is canceled
 // and replaced with the new one.
-func (c *Client) openSubscription(sub Subscription) {
+func (c *client) openSubscription(sub Subscription) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -139,7 +149,7 @@ func (c *Client) openSubscription(sub Subscription) {
 }
 
 // matchesSubscription returns which (REQ) Subscription of the client matches the provided event (if any).
-func (c *Client) matchingSubscription(event *nostr.Event) (match bool, ID string) {
+func (c *client) matchingSubscription(event *nostr.Event) (match bool, ID string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -152,7 +162,7 @@ func (c *Client) matchingSubscription(event *nostr.Event) (match bool, ID string
 }
 
 // rejectEvent wraps the relay RejectEvent method and makes them accessible to the client.
-func (c *Client) rejectEvent(e *EventRequest) *RequestError {
+func (c *client) rejectEvent(e *EventRequest) *RequestError {
 	for _, reject := range c.relay.RejectEvent {
 		if err := reject(c, e.Event); err != nil {
 			return &RequestError{ID: e.Event.ID, Err: err}
@@ -162,7 +172,7 @@ func (c *Client) rejectEvent(e *EventRequest) *RequestError {
 }
 
 // rejectReq wraps the relay RejectReq method and makes them accessible to the client.
-func (c *Client) rejectReq(req *ReqRequest) *RequestError {
+func (c *client) rejectReq(req *ReqRequest) *RequestError {
 	for _, reject := range c.relay.RejectReq {
 		if err := reject(c, req.Filters); err != nil {
 			return &RequestError{ID: req.subID, Err: err}
@@ -173,7 +183,7 @@ func (c *Client) rejectReq(req *ReqRequest) *RequestError {
 
 // rejectCount wraps the relay RejectCount method and makes them accessible to the client.
 // if relay.OnCount has not been set, an error is returned.
-func (c *Client) rejectCount(count *CountRequest) *RequestError {
+func (c *client) rejectCount(count *CountRequest) *RequestError {
 	if c.relay.OnCount == nil {
 		// nip-45 is optional
 		return &RequestError{ID: count.subID, Err: ErrUnsupportedNIP45}
@@ -188,7 +198,7 @@ func (c *Client) rejectCount(count *CountRequest) *RequestError {
 }
 
 // validateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
-func (c *Client) validateAuth(auth *AuthRequest) *RequestError {
+func (c *client) validateAuth(auth *AuthRequest) *RequestError {
 	if auth.Event.Kind != nostr.KindClientAuthentication {
 		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthKind}
 	}
@@ -224,7 +234,7 @@ func (c *Client) validateAuth(auth *AuthRequest) *RequestError {
 
 // The client reads from the websocket and parses the data into the appropriate structure (e.g. [ReqRequest]).
 // It manages creation and cancellation of subscriptions, and sends the request to the [Relay] to be processed.
-func (c *Client) read() {
+func (c *client) read() {
 	defer func() {
 		c.Disconnect()
 		c.conn.Close()
@@ -344,7 +354,7 @@ func (c *Client) read() {
 
 // The client writes to the websocket whatever [Response] it receives in its channel.
 // Periodically it writes [websocket.PingMessage]s.
-func (c *Client) write() {
+func (c *client) write() {
 	ticker := time.NewTicker(c.relay.pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -381,7 +391,7 @@ func (c *Client) write() {
 	}
 }
 
-func (c *Client) send(r Response) {
+func (c *client) send(r Response) {
 	if c.isUnregistering.Load() {
 		return
 	}

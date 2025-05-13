@@ -67,7 +67,7 @@ func TestRandom(t *testing.T) {
 	})
 }
 
-func dummyOnConnect(c *rely.Client) error {
+func dummyOnConnect(c rely.Client) error {
 	clients.Add(1)
 	if rg.Float32() < relayFailProbability {
 		c.Disconnect()
@@ -78,7 +78,7 @@ func dummyOnConnect(c *rely.Client) error {
 	return nil
 }
 
-func dummyOnEvent(c *rely.Client, e *nostr.Event) error {
+func dummyOnEvent(c rely.Client, e *nostr.Event) error {
 	events.Add(1)
 	if rg.Float32() < relayFailProbability {
 		c.Disconnect()
@@ -89,7 +89,7 @@ func dummyOnEvent(c *rely.Client, e *nostr.Event) error {
 	return nil
 }
 
-func dummyOnReq(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.Event, error) {
+func dummyOnReq(ctx context.Context, c rely.Client, f nostr.Filters) ([]nostr.Event, error) {
 	reqs.Add(1)
 	if rg.Float32() < relayFailProbability {
 		c.Disconnect()
@@ -99,7 +99,7 @@ func dummyOnReq(ctx context.Context, c *rely.Client, f nostr.Filters) ([]nostr.E
 	fibonacci(25) // simulate some work
 	return randomSlice(100, randomEvent), nil
 }
-func dummyOnCount(ctx context.Context, c *rely.Client, f nostr.Filters) (int64, bool, error) {
+func dummyOnCount(ctx context.Context, c rely.Client, f nostr.Filters) (int64, bool, error) {
 	counts.Add(1)
 	if rg.Float32() < relayFailProbability {
 		c.Disconnect()

@@ -18,7 +18,7 @@ import (
 )
 
 // InvalidID returns an error if the event's ID is invalid
-func InvalidID(c *Client, e *nostr.Event) error {
+func InvalidID(c Client, e *nostr.Event) error {
 	if !e.CheckID() {
 		return ErrInvalidEventID
 	}
@@ -26,7 +26,7 @@ func InvalidID(c *Client, e *nostr.Event) error {
 }
 
 // InvalidSignature returns an error if the event's signature is invalid.
-func InvalidSignature(c *Client, e *nostr.Event) error {
+func InvalidSignature(c Client, e *nostr.Event) error {
 	match, err := e.CheckSignature()
 	if !match {
 		if err != nil {
@@ -124,12 +124,12 @@ func IsUnexpectedClose(err error) bool {
 		websocket.CloseAbnormalClosure)
 }
 
-func logEvent(c *Client, e *nostr.Event) error {
-	log.Printf("received eventID %s from IP %s", e.ID, c.ip)
+func logEvent(c Client, e *nostr.Event) error {
+	log.Printf("received eventID %s from IP %s", e.ID, c.IP())
 	return nil
 }
 
-func logFilters(ctx context.Context, c *Client, f nostr.Filters) ([]nostr.Event, error) {
-	log.Printf("received %d filters from IP %s", len(f), c.ip)
+func logFilters(ctx context.Context, c Client, f nostr.Filters) ([]nostr.Event, error) {
+	log.Printf("received %d filters from IP %s", len(f), c.IP())
 	return nil, nil
 }

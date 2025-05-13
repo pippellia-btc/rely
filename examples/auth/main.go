@@ -37,7 +37,7 @@ func main() {
 	}
 }
 
-func AuthedOnDMs(client *rely.Client, filters nostr.Filters) error {
+func AuthedOnDMs(client rely.Client, filters nostr.Filters) error {
 	for _, filter := range filters {
 		if !slices.Contains(filter.Kinds, 4) {
 			continue

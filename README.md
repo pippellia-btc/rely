@@ -46,7 +46,7 @@ func BadIP(s Stats, req *http.Request) error {
 	return nil
 }
 
-func RejectSatan(client *rely.Client, event *nostr.Event) error {
+func RejectSatan(client Client, event *nostr.Event) error {
 	if event.Kind == 666 {
 		blacklist = append(blacklist, client.IP())
 		client.Disconnect()
@@ -83,7 +83,7 @@ Because I don't want to hide the fact that a REQ can contain multiple filters, a
 For example, he/she can decide to reject REQs that contain too many filters, or doing something like the following
 
 ```golang
-func TooMany(client *rely.Client, filters nostr.Filters) error {
+func TooMany(client rely.Client, filters nostr.Filters) error {
     total := len(filters)
     for _, sub := range client.Subscriptions() {
         total += len(sub.Filters)

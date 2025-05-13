@@ -32,27 +32,27 @@ var (
 // should be processed in the [Relay.start].
 type Request interface {
 	ID() string
-	From() *Client
+	From() *client
 }
 
 type EventRequest struct {
-	client *Client
+	client *client
 	Event  *nostr.Event
 }
 
 func (e *EventRequest) ID() string    { return e.Event.ID }
-func (e *EventRequest) From() *Client { return e.client }
+func (e *EventRequest) From() *client { return e.client }
 
 type ReqRequest struct {
 	subID string
 	ctx   context.Context // will be cancelled when the subscription is closed
 
-	client  *Client
+	client  *client
 	Filters nostr.Filters
 }
 
 func (r *ReqRequest) ID() string    { return r.subID }
-func (r *ReqRequest) From() *Client { return r.client }
+func (r *ReqRequest) From() *client { return r.client }
 
 // Subscription creates the subscription associated with the [ReqRequest].
 func (r *ReqRequest) Subscription() Subscription {
@@ -65,12 +65,12 @@ type CountRequest struct {
 	subID string
 	ctx   context.Context // will be cancelled when the subscription is closed
 
-	client  *Client
+	client  *client
 	Filters nostr.Filters
 }
 
 func (c *CountRequest) ID() string    { return c.subID }
-func (c *CountRequest) From() *Client { return c.client }
+func (c *CountRequest) From() *client { return c.client }
 
 // Subscription creates the subscription associated with the [CountRequest].
 func (c *CountRequest) Subscription() Subscription {

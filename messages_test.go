@@ -338,7 +338,7 @@ func TestValidateAuth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &Client{}
+			client := &client{}
 			if err := client.validateAuth(test.auth); !errors.Is(err, test.expected) {
 				t.Fatalf("expected error %v, got %v", test.expected, err)
 			}
