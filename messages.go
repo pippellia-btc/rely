@@ -36,7 +36,7 @@ type Request interface {
 }
 
 type EventRequest struct {
-	client *Client // the client where the request come from
+	client *Client
 	Event  *nostr.Event
 }
 
@@ -44,10 +44,10 @@ func (e *EventRequest) ID() string    { return e.Event.ID }
 func (e *EventRequest) From() *Client { return e.client }
 
 type ReqRequest struct {
-	subID string          // the subscription ID
+	subID string
 	ctx   context.Context // will be cancelled when the subscription is closed
 
-	client  *Client // the client where the request come from
+	client  *Client
 	Filters nostr.Filters
 }
 
@@ -62,10 +62,10 @@ func (r *ReqRequest) Subscription() Subscription {
 }
 
 type CountRequest struct {
-	subID string          // the subscription ID
+	subID string
 	ctx   context.Context // will be cancelled when the subscription is closed
 
-	client  *Client // the client where the request come from
+	client  *Client
 	Filters nostr.Filters
 }
 

@@ -50,6 +50,7 @@ type Relay struct {
 }
 
 // RelayFunctions is a collection of functions the users of rely can customize.
+// These functions MUST not be changed when the relay is running.
 type RelayFunctions struct {
 	// a connection is accepted if and only if err is nil. All functions MUST be thread-safe.
 	RejectConnection []func(Stats, *http.Request) error
@@ -84,7 +85,6 @@ func newRelayFunctions() RelayFunctions {
 		OnConnect:        func(c *Client) error { return nil },
 		OnEvent:          logEvent,
 		OnReq:            logFilters,
-		OnCount:          nip45Unsupported,
 	}
 }
 
@@ -290,7 +290,7 @@ func (r *Relay) start(ctx context.Context) {
 						continue
 					}
 
-					if match, subID := client.matchesSubscription(request.Event); match {
+					if match, subID := client.matchingSubscription(request.Event); match {
 						client.send(EventResponse{ID: subID, Event: request.Event})
 					}
 				}

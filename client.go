@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"slices"
 	"strings"
@@ -138,7 +139,7 @@ func (c *Client) openSubscription(sub Subscription) {
 }
 
 // matchesSubscription returns which (REQ) Subscription of the client matches the provided event (if any).
-func (c *Client) matchesSubscription(event *nostr.Event) (match bool, ID string) {
+func (c *Client) matchingSubscription(event *nostr.Event) (match bool, ID string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -170,8 +171,14 @@ func (c *Client) rejectReq(req *ReqRequest) *RequestError {
 	return nil
 }
 
-// rejectReq wraps the relay RejectReq method and makes them accessible to the client.
+// rejectCount wraps the relay RejectCount method and makes them accessible to the client.
+// if relay.OnCount has not been set, an error is returned.
 func (c *Client) rejectCount(count *CountRequest) *RequestError {
+	if c.relay.OnCount == nil {
+		// nip-45 is optional
+		return &RequestError{ID: count.subID, Err: ErrUnsupportedNIP45}
+	}
+
 	for _, reject := range c.relay.RejectCount {
 		if err := reject(c, count.Filters); err != nil {
 			return &RequestError{ID: count.subID, Err: err}
@@ -239,7 +246,7 @@ func (c *Client) read() {
 		label, json, err := parseJSON(data)
 		if err != nil {
 			// if unable to parse the message, send a generic NOTICE
-			c.send(NoticeResponse{Message: err.Error()})
+			c.send(NoticeResponse{Message: fmt.Sprintf("%v: %v", ErrGeneric, err)})
 			continue
 		}
 
