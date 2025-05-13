@@ -144,17 +144,18 @@ func (c *client) openSubscription(sub Subscription) {
 	}
 }
 
-// matchesSubscription returns which (REQ) Subscription of the client matches the provided event (if any).
-func (c *client) matchingSubscription(event *nostr.Event) (match bool, ID string) {
+// matchingSubscriptions returns the IDs of subscriptions that match the provided event.
+func (c *client) matchingSubscriptions(event *nostr.Event) []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	var IDs []string
 	for _, sub := range c.subscriptions {
 		if sub.Type == "REQ" && sub.Filters.Match(event) {
-			return true, sub.ID
+			IDs = append(IDs, sub.ID)
 		}
 	}
-	return false, ""
+	return IDs
 }
 
 // rejectEvent wraps the relay RejectEvent method and makes them accessible to the client.
