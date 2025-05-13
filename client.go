@@ -16,7 +16,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-const AuthChallengeBytes = 16
+const authChallengeBytes = 16
 
 type Subscription struct {
 	ID      string
@@ -25,6 +25,7 @@ type Subscription struct {
 	cancel  context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
 }
 
+// The Client where the request comes from. All methods are safe for concurrent use.
 type Client interface {
 	// Subscriptions returns the currently active subscriptions of the client
 	Subscriptions() []Subscription
@@ -46,7 +47,7 @@ type Client interface {
 }
 
 // client is a middleman between the websocket connection and the [Relay].
-// It's responsible for reading and validating the requests, and for writing the [Response]s
+// It's responsible for reading and validating the requests, and for writing the [response]s
 // if they satisfy at least one [Subscription].
 type client struct {
 	mu            sync.RWMutex
@@ -59,7 +60,7 @@ type client struct {
 
 	relay  *Relay
 	conn   *websocket.Conn
-	toSend chan Response
+	toSend chan response
 
 	isUnregistering atomic.Bool
 }
@@ -88,7 +89,7 @@ func (c *client) Pubkey() string {
 }
 
 func (c *client) SendAuthChallenge() {
-	challenge := make([]byte, AuthChallengeBytes)
+	challenge := make([]byte, authChallengeBytes)
 	rand.Read(challenge)
 
 	c.mu.Lock()
@@ -96,7 +97,7 @@ func (c *client) SendAuthChallenge() {
 
 	c.pubkey = ""
 	c.challenge = hex.EncodeToString(challenge)
-	c.send(AuthResponse{Challenge: c.challenge})
+	c.send(authResponse{Challenge: c.challenge})
 }
 
 func (c *client) Disconnect() {
@@ -157,20 +158,20 @@ func (c *client) matchingSubscription(event *nostr.Event) (match bool, ID string
 }
 
 // rejectEvent wraps the relay RejectEvent method and makes them accessible to the client.
-func (c *client) rejectEvent(e *EventRequest) *RequestError {
+func (c *client) rejectEvent(e *eventRequest) *requestError {
 	for _, reject := range c.relay.RejectEvent {
 		if err := reject(c, e.Event); err != nil {
-			return &RequestError{ID: e.Event.ID, Err: err}
+			return &requestError{ID: e.Event.ID, Err: err}
 		}
 	}
 	return nil
 }
 
 // rejectReq wraps the relay RejectReq method and makes them accessible to the client.
-func (c *client) rejectReq(req *ReqRequest) *RequestError {
+func (c *client) rejectReq(req *reqRequest) *requestError {
 	for _, reject := range c.relay.RejectReq {
 		if err := reject(c, req.Filters); err != nil {
-			return &RequestError{ID: req.subID, Err: err}
+			return &requestError{ID: req.subID, Err: err}
 		}
 	}
 	return nil
@@ -178,56 +179,56 @@ func (c *client) rejectReq(req *ReqRequest) *RequestError {
 
 // rejectCount wraps the relay RejectCount method and makes them accessible to the client.
 // if relay.OnCount has not been set, an error is returned.
-func (c *client) rejectCount(count *CountRequest) *RequestError {
+func (c *client) rejectCount(count *countRequest) *requestError {
 	if c.relay.OnCount == nil {
 		// nip-45 is optional
-		return &RequestError{ID: count.subID, Err: ErrUnsupportedNIP45}
+		return &requestError{ID: count.subID, Err: ErrUnsupportedNIP45}
 	}
 
 	for _, reject := range c.relay.RejectCount {
 		if err := reject(c, count.Filters); err != nil {
-			return &RequestError{ID: count.subID, Err: err}
+			return &requestError{ID: count.subID, Err: err}
 		}
 	}
 	return nil
 }
 
 // validateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
-func (c *client) validateAuth(auth *AuthRequest) *RequestError {
+func (c *client) validateAuth(auth *authRequest) *requestError {
 	if auth.Event.Kind != nostr.KindClientAuthentication {
-		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthKind}
+		return &requestError{ID: auth.ID, Err: ErrInvalidAuthKind}
 	}
 
 	if time.Since(auth.CreatedAt.Time()).Abs() > time.Minute {
-		return &RequestError{ID: auth.ID, Err: ErrInvalidTimestamp}
+		return &requestError{ID: auth.ID, Err: ErrInvalidTimestamp}
 	}
 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	challenge := auth.Challenge()
-	if len(challenge) != 2*AuthChallengeBytes || challenge != c.challenge {
+	if len(challenge) != 2*authChallengeBytes || challenge != c.challenge {
 		// the length check prevents auth attempts before the challenge is sent
-		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
+		return &requestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
 	}
 
 	relay := auth.Relay()
 	if !strings.Contains(relay, c.relay.domain) {
-		return &RequestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
+		return &requestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
 	}
 
 	if err := InvalidID(c, auth.Event); err != nil {
-		return &RequestError{ID: auth.ID, Err: err}
+		return &requestError{ID: auth.ID, Err: err}
 	}
 
 	if err := InvalidSignature(c, auth.Event); err != nil {
-		return &RequestError{ID: auth.ID, Err: err}
+		return &requestError{ID: auth.ID, Err: err}
 	}
 
 	return nil
 }
 
-// The client reads from the websocket and parses the data into the appropriate structure (e.g. [ReqRequest]).
+// The client reads from the websocket and parses the data into the appropriate structure (e.g. [reqRequest]).
 // It manages creation and cancellation of subscriptions, and sends the request to the [Relay] to be processed.
 func (c *client) read() {
 	defer func() {
@@ -242,7 +243,7 @@ func (c *client) read() {
 	for {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
-			if IsUnexpectedClose(err) {
+			if isUnexpectedClose(err) {
 				log.Printf("unexpected close error from IP %s: %v", c.ip, err)
 			}
 			return
@@ -251,7 +252,7 @@ func (c *client) read() {
 		label, json, err := parseJSON(data)
 		if err != nil {
 			// if unable to parse the message, send a generic NOTICE
-			c.send(NoticeResponse{Message: fmt.Sprintf("%v: %v", ErrGeneric, err)})
+			c.send(noticeResponse{Message: fmt.Sprintf("%v: %v", ErrGeneric, err)})
 			continue
 		}
 
@@ -259,29 +260,29 @@ func (c *client) read() {
 		case "EVENT":
 			event, err := parseEvent(json)
 			if err != nil {
-				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
 			if err := c.rejectEvent(event); err != nil {
-				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
 			event.client = c
 			if err := c.relay.enqueue(event); err != nil {
-				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 			}
 
 		case "REQ":
 			req, err := parseReq(json)
 			if err != nil {
-				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
 			if err := c.rejectReq(req); err != nil {
-				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
@@ -289,7 +290,7 @@ func (c *client) read() {
 			sub := req.Subscription()
 
 			if err := c.relay.enqueue(req); err != nil {
-				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
@@ -298,12 +299,12 @@ func (c *client) read() {
 		case "COUNT":
 			count, err := parseCount(json)
 			if err != nil {
-				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
 			if err := c.rejectCount(count); err != nil {
-				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
@@ -311,7 +312,7 @@ func (c *client) read() {
 			sub := count.Subscription()
 
 			if err := c.relay.enqueue(count); err != nil {
-				c.send(ClosedResponse{ID: err.ID, Reason: err.Error()})
+				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
@@ -320,7 +321,7 @@ func (c *client) read() {
 		case "CLOSE":
 			close, err := parseClose(json)
 			if err != nil {
-				c.send(NoticeResponse{Message: err.Error()})
+				c.send(noticeResponse{Message: err.Error()})
 				continue
 			}
 
@@ -329,25 +330,25 @@ func (c *client) read() {
 		case "AUTH":
 			auth, err := parseAuth(json)
 			if err != nil {
-				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
 			if err := c.validateAuth(auth); err != nil {
-				c.send(OkResponse{ID: err.ID, Saved: false, Reason: err.Error()})
+				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
 			c.setPubkey(auth.PubKey)
-			c.send(OkResponse{ID: auth.ID, Saved: true})
+			c.send(okResponse{ID: auth.ID, Saved: true})
 
 		default:
-			c.send(NoticeResponse{Message: ErrUnsupportedType.Error()})
+			c.send(noticeResponse{Message: ErrUnsupportedType.Error()})
 		}
 	}
 }
 
-// The client writes to the websocket whatever [Response] it receives in its channel.
+// The client writes to the websocket whatever [response] it receives in its channel.
 // Periodically it writes [websocket.PingMessage]s.
 func (c *client) write() {
 	ticker := time.NewTicker(c.relay.pingPeriod)
@@ -368,7 +369,7 @@ func (c *client) write() {
 			}
 
 			if err := c.conn.WriteJSON(response); err != nil {
-				if IsUnexpectedClose(err) {
+				if isUnexpectedClose(err) {
 					log.Printf("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
 				}
 				return
@@ -377,7 +378,7 @@ func (c *client) write() {
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				if IsUnexpectedClose(err) {
+				if isUnexpectedClose(err) {
 					log.Printf("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
 				}
 				return
@@ -386,7 +387,7 @@ func (c *client) write() {
 	}
 }
 
-func (c *client) send(r Response) {
+func (c *client) send(r response) {
 	if c.isUnregistering.Load() {
 		return
 	}

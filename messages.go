@@ -13,7 +13,7 @@ var (
 	ErrGeneric         = errors.New(`the request must be a JSON array with a length greater than two`)
 	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ', 'CLOSE', 'COUNT' and 'AUTH'`)
 
-	ErrInvalidEventRequest   = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
+	ErrInvalideventRequest   = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
 	ErrInvalidEventID        = errors.New(`invalid event ID`)
 	ErrInvalidEventSignature = errors.New(`invalid event signature`)
 
@@ -28,22 +28,22 @@ var (
 	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
 )
 
-// Request is a minimal interface that must be fullfilled by all requests that
+// request is a minimal interface that must be fullfilled by all requests that
 // should be processed in the [Relay.start].
-type Request interface {
+type request interface {
 	ID() string
 	From() *client
 }
 
-type EventRequest struct {
+type eventRequest struct {
 	client *client
 	Event  *nostr.Event
 }
 
-func (e *EventRequest) ID() string    { return e.Event.ID }
-func (e *EventRequest) From() *client { return e.client }
+func (e *eventRequest) ID() string    { return e.Event.ID }
+func (e *eventRequest) From() *client { return e.client }
 
-type ReqRequest struct {
+type reqRequest struct {
 	subID string
 	ctx   context.Context // will be cancelled when the subscription is closed
 
@@ -51,17 +51,17 @@ type ReqRequest struct {
 	Filters nostr.Filters
 }
 
-func (r *ReqRequest) ID() string    { return r.subID }
-func (r *ReqRequest) From() *client { return r.client }
+func (r *reqRequest) ID() string    { return r.subID }
+func (r *reqRequest) From() *client { return r.client }
 
-// Subscription creates the subscription associated with the [ReqRequest].
-func (r *ReqRequest) Subscription() Subscription {
+// Subscription creates the subscription associated with the [reqRequest].
+func (r *reqRequest) Subscription() Subscription {
 	sub := Subscription{Type: "REQ", ID: r.subID, Filters: r.Filters}
 	r.ctx, sub.cancel = context.WithCancel(context.Background())
 	return sub
 }
 
-type CountRequest struct {
+type countRequest struct {
 	subID string
 	ctx   context.Context // will be cancelled when the subscription is closed
 
@@ -69,25 +69,25 @@ type CountRequest struct {
 	Filters nostr.Filters
 }
 
-func (c *CountRequest) ID() string    { return c.subID }
-func (c *CountRequest) From() *client { return c.client }
+func (c *countRequest) ID() string    { return c.subID }
+func (c *countRequest) From() *client { return c.client }
 
-// Subscription creates the subscription associated with the [CountRequest].
-func (c *CountRequest) Subscription() Subscription {
+// Subscription creates the subscription associated with the [countRequest].
+func (c *countRequest) Subscription() Subscription {
 	sub := Subscription{Type: "COUNT", ID: c.subID, Filters: c.Filters}
 	c.ctx, sub.cancel = context.WithCancel(context.Background())
 	return sub
 }
 
-type CloseRequest struct {
+type closeRequest struct {
 	subID string // the subscription ID
 }
 
-type AuthRequest struct {
+type authRequest struct {
 	*nostr.Event
 }
 
-func (a *AuthRequest) Challenge() string {
+func (a *authRequest) Challenge() string {
 	for _, tag := range a.Tags {
 		if len(tag) > 1 && tag[0] == "challenge" {
 			return tag[1]
@@ -96,7 +96,7 @@ func (a *AuthRequest) Challenge() string {
 	return ""
 }
 
-func (a *AuthRequest) Relay() string {
+func (a *authRequest) Relay() string {
 	for _, tag := range a.Tags {
 		if len(tag) > 1 && tag[0] == "relay" {
 			return tag[1]
@@ -105,19 +105,19 @@ func (a *AuthRequest) Relay() string {
 	return ""
 }
 
-type RequestError struct {
+type requestError struct {
 	ID  string
 	Err error
 }
 
-func (e *RequestError) Error() string { return e.Err.Error() }
+func (e *requestError) Error() string { return e.Err.Error() }
 
-func (e *RequestError) Is(target error) bool {
+func (e *requestError) Is(target error) bool {
 	if e == nil {
 		return target == nil
 	}
 
-	t, ok := target.(*RequestError)
+	t, ok := target.(*requestError)
 	if !ok {
 		return false
 	}
@@ -143,81 +143,81 @@ func parseJSON(data []byte) (label string, array []json.RawMessage, err error) {
 	return label, array[1:], nil
 }
 
-// parseEvent parses the json array into an [EventRequest].
-func parseEvent(array []json.RawMessage) (*EventRequest, *RequestError) {
+// parseEvent parses the json array into an [eventRequest].
+func parseEvent(array []json.RawMessage) (*eventRequest, *requestError) {
 	var event nostr.Event
 	if err := json.Unmarshal(array[0], &event); err != nil {
-		return nil, &RequestError{Err: fmt.Errorf("%w: %w", ErrInvalidEventRequest, err)}
+		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalideventRequest, err)}
 	}
 
-	return &EventRequest{Event: &event}, nil
+	return &eventRequest{Event: &event}, nil
 }
 
-// parseAuth parses the json array into an [AuthRequest].
-func parseAuth(array []json.RawMessage) (*AuthRequest, *RequestError) {
+// parseAuth parses the json array into an [authRequest].
+func parseAuth(array []json.RawMessage) (*authRequest, *requestError) {
 	var auth nostr.Event
 	if err := json.Unmarshal(array[0], &auth); err != nil {
-		return nil, &RequestError{Err: fmt.Errorf("%w: %w", ErrInvalidAuthRequest, err)}
+		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidAuthRequest, err)}
 	}
 
-	return &AuthRequest{Event: &auth}, nil
+	return &authRequest{Event: &auth}, nil
 }
 
-// parseReq parses the json array into an [ReqRequest], validating the subscription ID.
-func parseReq(array []json.RawMessage) (*ReqRequest, *RequestError) {
+// parseReq parses the json array into an [reqRequest], validating the subscription ID.
+func parseReq(array []json.RawMessage) (*reqRequest, *requestError) {
 	ID, err1 := parseID(array[0])
 	if err1 != nil {
 		return nil, err1
 	}
 
 	if len(array) < 2 {
-		return nil, &RequestError{ID: ID, Err: ErrInvalidReqRequest}
+		return nil, &requestError{ID: ID, Err: ErrInvalidReqRequest}
 	}
 
 	filters, err2 := parseFilters(array[1:])
 	if err2 != nil {
-		return nil, &RequestError{ID: ID, Err: err2}
+		return nil, &requestError{ID: ID, Err: err2}
 	}
 
-	return &ReqRequest{subID: ID, Filters: filters}, nil
+	return &reqRequest{subID: ID, Filters: filters}, nil
 }
 
-// parseCount parses the json array into an [CountRequest], validating the subscription ID.
-func parseCount(array []json.RawMessage) (*CountRequest, *RequestError) {
+// parseCount parses the json array into an [countRequest], validating the subscription ID.
+func parseCount(array []json.RawMessage) (*countRequest, *requestError) {
 	ID, err1 := parseID(array[0])
 	if err1 != nil {
 		return nil, err1
 	}
 
 	if len(array) < 2 {
-		return nil, &RequestError{ID: ID, Err: ErrInvalidCountRequest}
+		return nil, &requestError{ID: ID, Err: ErrInvalidCountRequest}
 	}
 
 	filters, err2 := parseFilters(array[1:])
 	if err2 != nil {
-		return nil, &RequestError{ID: ID, Err: err2}
+		return nil, &requestError{ID: ID, Err: err2}
 	}
 
-	return &CountRequest{subID: ID, Filters: filters}, nil
+	return &countRequest{subID: ID, Filters: filters}, nil
 }
 
-// parseClose parses the json array into an [CloseRequest], validating the subscription ID.
-func parseClose(array []json.RawMessage) (*CloseRequest, *RequestError) {
+// parseClose parses the json array into an [closeRequest], validating the subscription ID.
+func parseClose(array []json.RawMessage) (*closeRequest, *requestError) {
 	ID, err := parseID(array[0])
 	if err != nil {
 		return nil, err
 	}
-	return &CloseRequest{subID: ID}, nil
+	return &closeRequest{subID: ID}, nil
 }
 
-func parseID(data json.RawMessage) (string, *RequestError) {
+func parseID(data json.RawMessage) (string, *requestError) {
 	var ID string
 	if err := json.Unmarshal(data, &ID); err != nil {
-		return "", &RequestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
+		return "", &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
 	}
 
 	if len(ID) < 1 || len(ID) > 64 {
-		return "", &RequestError{ID: ID, Err: ErrInvalidSubscriptionID}
+		return "", &requestError{ID: ID, Err: ErrInvalidSubscriptionID}
 	}
 
 	return ID, nil
@@ -234,61 +234,61 @@ func parseFilters(array []json.RawMessage) (filters nostr.Filters, err error) {
 	return filters, nil
 }
 
-type Response = json.Marshaler
+type response = json.Marshaler
 
-type OkResponse struct {
+type okResponse struct {
 	ID     string
 	Saved  bool
 	Reason string
 }
 
-func (o OkResponse) MarshalJSON() ([]byte, error) {
+func (o okResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]any{"OK", o.ID, o.Saved, o.Reason})
 }
 
-type ClosedResponse struct {
+type closedResponse struct {
 	ID     string
 	Reason string
 }
 
-func (c ClosedResponse) MarshalJSON() ([]byte, error) {
+func (c closedResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string{"CLOSED", c.ID, c.Reason})
 }
 
-type EventResponse struct {
+type eventResponse struct {
 	ID    string
 	Event *nostr.Event
 }
 
-func (e EventResponse) MarshalJSON() ([]byte, error) {
+func (e eventResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]any{"EVENT", e.ID, e.Event})
 }
 
-type EoseResponse struct {
+type eoseResponse struct {
 	ID string
 }
 
-func (e EoseResponse) MarshalJSON() ([]byte, error) {
+func (e eoseResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string{"EOSE", e.ID})
 }
 
-type NoticeResponse struct {
+type noticeResponse struct {
 	Message string
 }
 
-func (n NoticeResponse) MarshalJSON() ([]byte, error) {
+func (n noticeResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string{"NOTICE", n.Message})
 }
 
-type AuthResponse struct {
+type authResponse struct {
 	Challenge string
 }
 
-func (a AuthResponse) MarshalJSON() ([]byte, error) {
+func (a authResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string{"AUTH", a.Challenge})
 }
 
-type CountResponse struct {
+type countResponse struct {
 	ID string
 	countPayload
 }
@@ -298,6 +298,6 @@ type countPayload struct {
 	Approx bool  `json:"approximate,omitempty"`
 }
 
-func (c CountResponse) MarshalJSON() ([]byte, error) {
+func (c countResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]any{"COUNT", c.ID, c.countPayload})
 }

@@ -36,7 +36,7 @@ type Relay struct {
 	unregister chan *client
 
 	// the queue for EVENTs and REQs
-	queue chan Request
+	queue chan request
 
 	// the last (unix) time a client registration failed due to the register channel being full
 	lastRegistrationFail atomic.Int64
@@ -88,8 +88,7 @@ func newRelayFunctions() RelayFunctions {
 	}
 }
 
-// Stats exposes relay statistics useful for rejecting connections during peaks of activity.
-// All methods are thread-safe, and can be called from multiple goroutines.
+// Stats exposes relay statistics useful for rejecting connections during peaks of activity. All methods are safe for concurrent use.
 type Stats interface {
 	// Clients returns the number of active clients connected to the relay.
 	Clients() int
@@ -128,7 +127,7 @@ func newWebsocketOptions() websocketOptions {
 type Option func(*Relay)
 
 func WithDomain(d string) Option       { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
-func WithQueueCapacity(cap int) Option { return func(r *Relay) { r.queue = make(chan Request, cap) } }
+func WithQueueCapacity(cap int) Option { return func(r *Relay) { r.queue = make(chan request, cap) } }
 
 func WithReadBufferSize(s int) Option       { return func(r *Relay) { r.upgrader.ReadBufferSize = s } }
 func WithWriteBufferSize(s int) Option      { return func(r *Relay) { r.upgrader.WriteBufferSize = s } }
@@ -150,7 +149,7 @@ func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessa
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		queue:            make(chan Request, 1000),
+		queue:            make(chan request, 1000),
 		clients:          make(map[*client]struct{}, 100),
 		register:         make(chan *client, 100),
 		unregister:       make(chan *client, 100),
@@ -168,12 +167,12 @@ func NewRelay(opts ...Option) *Relay {
 
 // enqueue tries to add the request to the queue of the relay.
 // If it's full, it returns the error [ErrOverloaded]
-func (r *Relay) enqueue(request Request) *RequestError {
+func (r *Relay) enqueue(req request) *requestError {
 	select {
-	case r.queue <- request:
+	case r.queue <- req:
 		return nil
 	default:
-		return &RequestError{ID: request.ID(), Err: ErrOverloaded}
+		return &requestError{ID: req.ID(), Err: ErrOverloaded}
 	}
 }
 
@@ -252,7 +251,7 @@ func (r *Relay) start(ctx context.Context) {
 			r.clientsCount.Add(1)
 
 			if err := r.OnConnect(client); err != nil {
-				client.send(NoticeResponse{Message: err.Error()})
+				client.send(noticeResponse{Message: err.Error()})
 			}
 
 		case client := <-r.unregister:
@@ -276,13 +275,13 @@ func (r *Relay) start(ctx context.Context) {
 			}
 
 			switch request := request.(type) {
-			case *EventRequest:
+			case *eventRequest:
 				err := r.OnEvent(request.client, request.Event)
 				if err != nil {
-					request.client.send(OkResponse{ID: request.ID(), Saved: false, Reason: err.Error()})
+					request.client.send(okResponse{ID: request.ID(), Saved: false, Reason: err.Error()})
 					continue
 				}
-				request.client.send(OkResponse{ID: request.ID(), Saved: true})
+				request.client.send(okResponse{ID: request.ID(), Saved: true})
 
 				// send the event to all connected clients whose subscriptions match it
 				for client := range r.clients {
@@ -291,16 +290,16 @@ func (r *Relay) start(ctx context.Context) {
 					}
 
 					if match, subID := client.matchingSubscription(request.Event); match {
-						client.send(EventResponse{ID: subID, Event: request.Event})
+						client.send(eventResponse{ID: subID, Event: request.Event})
 					}
 				}
 
-			case *ReqRequest:
+			case *reqRequest:
 				events, err := r.OnReq(request.ctx, request.client, request.Filters)
 				if err != nil {
 					if request.ctx.Err() == nil {
 						// the error was NOT caused by the user cancelling the REQ, so we send a CLOSED
-						request.client.send(ClosedResponse{ID: request.ID(), Reason: err.Error()})
+						request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
 					}
 
 					request.client.closeSubscription(request.ID())
@@ -308,23 +307,23 @@ func (r *Relay) start(ctx context.Context) {
 				}
 
 				for _, event := range events {
-					request.client.send(EventResponse{ID: request.ID(), Event: &event})
+					request.client.send(eventResponse{ID: request.ID(), Event: &event})
 				}
-				request.client.send(EoseResponse{ID: request.ID()})
+				request.client.send(eoseResponse{ID: request.ID()})
 
-			case *CountRequest:
+			case *countRequest:
 				count, approx, err := r.OnCount(request.ctx, request.client, request.Filters)
 				if err != nil {
 					if request.ctx.Err() == nil {
 						// the error was NOT caused by the user cancelling the COUNT, so we send a CLOSED
-						request.client.send(ClosedResponse{ID: request.ID(), Reason: err.Error()})
+						request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
 					}
 
 					request.client.closeSubscription(request.ID())
 					continue
 				}
 
-				request.client.send(CountResponse{ID: request.ID(), countPayload: countPayload{Count: count, Approx: approx}})
+				request.client.send(countResponse{ID: request.ID(), countPayload: countPayload{Count: count, Approx: approx}})
 				request.client.closeSubscription(request.ID())
 			}
 		}
@@ -338,7 +337,7 @@ func (r *Relay) close() {
 
 	for client := range r.clients {
 		for _, sub := range client.subscriptions {
-			client.send(ClosedResponse{ID: sub.ID, Reason: "shutting down the relay"})
+			client.send(closedResponse{ID: sub.ID, Reason: "shutting down the relay"})
 		}
 	}
 }
@@ -369,7 +368,7 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	client := &client{ip: IP(req), relay: r, conn: conn, toSend: make(chan Response, 100)}
+	client := &client{ip: IP(req), relay: r, conn: conn, toSend: make(chan response, 100)}
 
 	select {
 	case r.register <- client:

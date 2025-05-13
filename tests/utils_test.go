@@ -10,7 +10,7 @@ import (
 	"github.com/pippellia-btc/rely"
 )
 
-func randomEventRequest() ([]byte, error) {
+func randomeventRequest() ([]byte, error) {
 	request := []any{"EVENT", randomEvent()}
 	data, err := json.Marshal(request)
 	if err != nil {

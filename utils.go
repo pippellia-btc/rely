@@ -117,7 +117,7 @@ func HandleSignals(cancel context.CancelFunc) {
 	cancel()
 }
 
-func IsUnexpectedClose(err error) bool {
+func isUnexpectedClose(err error) bool {
 	return websocket.IsUnexpectedCloseError(err,
 		websocket.CloseNormalClosure,
 		websocket.CloseGoingAway,

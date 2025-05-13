@@ -125,7 +125,7 @@ func newClient(conn *websocket.Conn, errChan chan error) *client {
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
-			generateRequest:  randomEventRequest,
+			generateRequest:  randomeventRequest,
 			validateResponse: validateLabel([]string{"OK"}),
 		}
 
