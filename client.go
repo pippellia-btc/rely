@@ -20,7 +20,7 @@ const authChallengeBytes = 16
 
 // The Client where the request comes from. All methods are safe for concurrent use.
 type Client interface {
-	// Subscriptions returns the currently active subscriptions of the client
+	// Subscriptions returns the currently active "REQ" subscriptions of the client
 	Subscriptions() []Subscription
 
 	// IP returns the IP address of the client
@@ -41,9 +41,10 @@ type Client interface {
 
 type Subscription struct {
 	ID      string
-	Type    string // either "REQ" or "COUNT"
 	Filters nostr.Filters
-	cancel  context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
+
+	typ    string             // either "REQ" or "COUNT"
+	cancel context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
 }
 
 // client is a middleman between the websocket connection and the [Relay].
@@ -71,8 +72,13 @@ func (c *client) Subscriptions() []Subscription {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	subs := make([]Subscription, len(c.subscriptions))
-	copy(subs, c.subscriptions)
+	subs := make([]Subscription, 0, len(c.subscriptions))
+	for _, s := range c.subscriptions {
+		if s.typ == "REQ" {
+			subs = append(subs, s)
+		}
+	}
+
 	return subs
 }
 
@@ -151,7 +157,7 @@ func (c *client) matchingSubscriptions(event *nostr.Event) []string {
 
 	var IDs []string
 	for _, sub := range c.subscriptions {
-		if sub.Type == "REQ" && sub.Filters.Match(event) {
+		if sub.typ == "REQ" && sub.Filters.Match(event) {
 			IDs = append(IDs, sub.ID)
 		}
 	}

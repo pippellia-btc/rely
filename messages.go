@@ -56,7 +56,7 @@ func (r *reqRequest) From() *client { return r.client }
 
 // Subscription creates the subscription associated with the [reqRequest].
 func (r *reqRequest) Subscription() Subscription {
-	sub := Subscription{Type: "REQ", ID: r.subID, Filters: r.Filters}
+	sub := Subscription{typ: "REQ", ID: r.subID, Filters: r.Filters}
 	r.ctx, sub.cancel = context.WithCancel(context.Background())
 	return sub
 }
@@ -74,7 +74,7 @@ func (c *countRequest) From() *client { return c.client }
 
 // Subscription creates the subscription associated with the [countRequest].
 func (c *countRequest) Subscription() Subscription {
-	sub := Subscription{Type: "COUNT", ID: c.subID, Filters: c.Filters}
+	sub := Subscription{typ: "COUNT", ID: c.subID, Filters: c.Filters}
 	c.ctx, sub.cancel = context.WithCancel(context.Background())
 	return sub
 }
