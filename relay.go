@@ -35,13 +35,13 @@ type Relay struct {
 	register   chan *client
 	unregister chan *client
 
-	// the queue for EVENTs and REQs
+	// the queue for EVENTs, REQs and COUNTs
 	queue chan request
 
 	// the last (unix) time a client registration failed due to the register channel being full
 	lastRegistrationFail atomic.Int64
 
-	// domain is the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
+	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
 	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
 	domain string
 	websocketOptions
@@ -337,7 +337,7 @@ func (r *Relay) close() {
 	}
 }
 
-// ServeHTTP implements http.Handler interface, only handling WebSocket connections.
+// ServeHTTP implements the http.Handler interface, only handling WebSocket connections.
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Header.Get("Upgrade") == "websocket" {
 		r.HandleWebsocket(w, req)

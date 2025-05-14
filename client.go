@@ -23,10 +23,10 @@ type Client interface {
 	// Subscriptions returns the currently active "REQ" subscriptions of the client
 	Subscriptions() []Subscription
 
-	// IP returns the IP address of the client
+	// IP address of the client
 	IP() string
 
-	// Pubkey returns the pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
+	// Pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
 	// To initiate the authentication, call [Client.SendAuthChallenge]
 	Pubkey() string
 
@@ -164,7 +164,7 @@ func (c *client) matchingSubscriptions(event *nostr.Event) []string {
 	return IDs
 }
 
-// rejectEvent wraps the relay RejectEvent method and makes them accessible to the client.
+// rejectEvent wraps the relay RejectEvent functions and makes them accessible to the client.
 func (c *client) rejectEvent(e *eventRequest) *requestError {
 	for _, reject := range c.relay.RejectEvent {
 		if err := reject(c, e.Event); err != nil {
@@ -174,7 +174,7 @@ func (c *client) rejectEvent(e *eventRequest) *requestError {
 	return nil
 }
 
-// rejectReq wraps the relay RejectReq method and makes them accessible to the client.
+// rejectReq wraps the relay RejectReq functions and makes them accessible to the client.
 func (c *client) rejectReq(req *reqRequest) *requestError {
 	for _, reject := range c.relay.RejectReq {
 		if err := reject(c, req.Filters); err != nil {
@@ -184,7 +184,7 @@ func (c *client) rejectReq(req *reqRequest) *requestError {
 	return nil
 }
 
-// rejectCount wraps the relay RejectCount method and makes them accessible to the client.
+// rejectCount wraps the relay RejectCount functions and makes them accessible to the client.
 // if relay.OnCount has not been set, an error is returned.
 func (c *client) rejectCount(count *countRequest) *requestError {
 	if c.relay.OnCount == nil {
@@ -213,14 +213,11 @@ func (c *client) validateAuth(auth *authRequest) *requestError {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	challenge := auth.Challenge()
-	if len(challenge) != 2*authChallengeBytes || challenge != c.challenge {
-		// the length check prevents auth attempts before the challenge is sent
+	if c.challenge == "" || auth.Challenge() != c.challenge {
 		return &requestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
 	}
 
-	relay := auth.Relay()
-	if !strings.Contains(relay, c.relay.domain) {
+	if !strings.Contains(auth.Relay(), c.relay.domain) {
 		return &requestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
 	}
 
