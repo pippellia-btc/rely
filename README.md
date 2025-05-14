@@ -1,6 +1,6 @@
 # rely
 A framework for building super custom relays you can *rely* on.
-Designed to be simple and stable. About 1000 lines of code.
+Designed to be simple and stable. About 1500 lines of code.
 
 ## Installation
 ```
