@@ -116,7 +116,11 @@ type websocketOptions struct {
 
 func newWebsocketOptions() websocketOptions {
 	return websocketOptions{
-		upgrader:       websocket.Upgrader{ReadBufferSize: DefaultBufferSize, WriteBufferSize: DefaultBufferSize},
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  DefaultBufferSize,
+			WriteBufferSize: DefaultBufferSize,
+			CheckOrigin:     func(r *http.Request) bool { return true },
+		},
 		writeWait:      DefaultWriteWait,
 		pongWait:       DefaultPongWait,
 		pingPeriod:     DefaultPingPeriod,
