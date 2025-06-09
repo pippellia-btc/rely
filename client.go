@@ -49,7 +49,7 @@ type Subscription struct {
 
 // client is a middleman between the websocket connection and the [Relay].
 // It's responsible for reading and validating the requests, and for writing the [response]s
-// if they satisfy at least one [Subscription].
+// to all matching [Subscription]s.
 type client struct {
 	mu            sync.RWMutex
 	ip            string
@@ -106,6 +106,7 @@ func (c *client) SendAuthChallenge() {
 	c.send(authResponse{Challenge: c.challenge})
 }
 
+// Disconnect the client by sending a [websocket.CloseNormalClosure]
 func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		c.relay.unregister <- c
