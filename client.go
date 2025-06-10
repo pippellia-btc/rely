@@ -400,6 +400,8 @@ func (c *client) send(r response) {
 	select {
 	case c.toSend <- r:
 	default:
-		log.Printf("failed to send the client with IP %s the response %v: channel is full", c.ip, r)
+		if c.relay.logOverload {
+			log.Printf("failed to send the client with IP %s the response %v: channel is full", c.ip, r)
+		}
 	}
 }

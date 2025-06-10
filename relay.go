@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -16,14 +15,6 @@ import (
 var (
 	ErrOverloaded       = errors.New("the relay is overloaded, please try again later")
 	ErrUnsupportedNIP45 = errors.New("NIP-45 COUNT is not supported")
-)
-
-const (
-	DefaultWriteWait      time.Duration = 10 * time.Second
-	DefaultPongWait       time.Duration = 60 * time.Second
-	DefaultPingPeriod     time.Duration = 45 * time.Second
-	DefaultMaxMessageSize int64         = 500000 // 0.5MB
-	DefaultBufferSize     int           = 1024   // 1KB
 )
 
 type Relay struct {
@@ -44,43 +35,36 @@ type Relay struct {
 	// the queue for EVENTs, REQs and COUNTs
 	queue chan request
 
-	// the maximum number of concurrent processors consuming from the queue.
-	// To specify it, use [WithMaxProcessors]
-	maxProcessors int
-
-	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
-	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
-	domain string
+	systemOptions
 	websocketOptions
-
 	RelayFunctions
 }
 
 // RelayFunctions is a collection of functions the users of rely can customize.
-// These functions MUST not be changed when the relay is running.
+// These functions MUST not be changed when the relay is running, and MUST be thread-safe.
 type RelayFunctions struct {
-	// a connection is accepted if and only if err is nil. All functions MUST be thread-safe.
+	// a connection is accepted if and only if all errs are nil.
 	RejectConnection []func(Stats, *http.Request) error
 
-	// an event is accepted if and only if err is nil. All functions MUST be thread-safe.
+	// an EVENT is accepted if and only if all errs are nil.
 	RejectEvent []func(Client, *nostr.Event) error
 
-	// the filters are accepted if and only if err is nil. All functions MUST be thread-safe.
+	// a REQ is accepted if and only if all errs are nil.
 	RejectReq []func(Client, nostr.Filters) error
 
-	// the filters are accepted if and only if err is nil. All functions MUST be thread-safe.
+	// a COUNT is accepted if and only if all errs are nil.
 	RejectCount []func(Client, nostr.Filters) error
 
-	// the action the relay performs after establishing a connection with the specified client.
+	// the actions to perform after establishing a connection with the specified client.
 	OnConnect func(Client) error
 
-	// the action the relay performs on an EVENT coming from the specified client.
+	// the actions to perform on an EVENT coming from the specified client.
 	OnEvent func(Client, *nostr.Event) error
 
-	// the action the relay performs on a REQ coming from the specified client.
+	// the actions to perform on a REQ coming from the specified client.
 	OnReq func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
 
-	// the action the relay performs on a COUNT coming from the specified client.
+	// the actions to perform on a COUNT coming from the specified client.
 	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
@@ -113,41 +97,6 @@ func (r *Relay) Clients() int                    { return int(r.clientsCount.Loa
 func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
 func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
 
-type websocketOptions struct {
-	upgrader       websocket.Upgrader
-	writeWait      time.Duration
-	pongWait       time.Duration
-	pingPeriod     time.Duration
-	maxMessageSize int64
-}
-
-func newWebsocketOptions() websocketOptions {
-	return websocketOptions{
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  DefaultBufferSize,
-			WriteBufferSize: DefaultBufferSize,
-			CheckOrigin:     func(r *http.Request) bool { return true },
-		},
-		writeWait:      DefaultWriteWait,
-		pongWait:       DefaultPongWait,
-		pingPeriod:     DefaultPingPeriod,
-		maxMessageSize: DefaultMaxMessageSize,
-	}
-}
-
-type Option func(*Relay)
-
-func WithDomain(d string) Option     { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
-func WithQueueCapacity(c int) Option { return func(r *Relay) { r.queue = make(chan request, c) } }
-func WithMaxProcessors(n int) Option { return func(r *Relay) { r.maxProcessors = n } }
-
-func WithReadBufferSize(s int) Option       { return func(r *Relay) { r.upgrader.ReadBufferSize = s } }
-func WithWriteBufferSize(s int) Option      { return func(r *Relay) { r.upgrader.WriteBufferSize = s } }
-func WithWriteWait(d time.Duration) Option  { return func(r *Relay) { r.writeWait = d } }
-func WithPongWait(d time.Duration) Option   { return func(r *Relay) { r.pongWait = d } }
-func WithPingPeriod(d time.Duration) Option { return func(r *Relay) { r.pingPeriod = d } }
-func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessageSize = s } }
-
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
 // Customize its structure with functional options (e.g., [WithDomain], [WithQueueCapacity]).
 // Customize its behaviour by writing OnEvent, OnReq and other [RelayFunctions].
@@ -161,15 +110,15 @@ func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessa
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		clients:       make(map[*client]struct{}, 100),
-		register:      make(chan *client, 100),
-		unregister:    make(chan *client, 100),
-		broadcast:     make(chan *nostr.Event, 1000),
-		queue:         make(chan request, 1000),
-		maxProcessors: 4,
+		clients:    make(map[*client]struct{}, 100),
+		register:   make(chan *client, 100),
+		unregister: make(chan *client, 100),
+		broadcast:  make(chan *nostr.Event, 1000),
+		queue:      make(chan request, 1000),
 
-		RelayFunctions:   newRelayFunctions(),
+		systemOptions:    newSystemOptions(),
 		websocketOptions: newWebsocketOptions(),
+		RelayFunctions:   newRelayFunctions(),
 	}
 
 	for _, opt := range opts {
@@ -180,34 +129,6 @@ func NewRelay(opts ...Option) *Relay {
 	return r
 }
 
-// validate panics if structural relay parameters are invalid, and logs warnings
-// for non-fatal but potentially misconfigured settings (e.g., missing domain).
-func (r *Relay) validate() {
-	if r.pingPeriod < 1*time.Second {
-		panic("ping period must be greater than 1s")
-	}
-
-	if r.pongWait <= r.pingPeriod {
-		panic("pong wait must be greater than ping period")
-	}
-
-	if r.writeWait < 1*time.Second {
-		panic("write wait must be greater than 1s")
-	}
-
-	if r.maxMessageSize < 512 {
-		panic("max message size must be greater than 512 bytes to accept nostr events")
-	}
-
-	if r.maxProcessors < 1 {
-		panic("max processors must be greater than 1 to correctly process from the queue")
-	}
-
-	if r.domain == "" {
-		log.Println("WARN: you must set the relay's domain to validate NIP-42 auth")
-	}
-}
-
 // enqueue tries to add the request to the queue of the relay.
 // If it's full, it returns [ErrOverloaded]
 func (r *Relay) enqueue(req request) *requestError {
@@ -215,6 +136,9 @@ func (r *Relay) enqueue(req request) *requestError {
 	case r.queue <- req:
 		return nil
 	default:
+		if r.logOverload {
+			log.Printf("failed to enqueue request with ID %s: %v", req.ID(), ErrOverloaded)
+		}
 		return &requestError{ID: req.ID(), Err: ErrOverloaded}
 	}
 }
@@ -287,12 +211,13 @@ func (r *Relay) coordinator(ctx context.Context) {
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
 			n := int64(len(r.unregister))
-			r.clientsCount.Add(-1 - n)
 			for range n {
 				client = <-r.unregister
 				delete(r.clients, client)
 				close(client.toSend)
 			}
+
+			r.clientsCount.Add(-1 - n)
 
 		case event := <-r.broadcast:
 			for client := range r.clients {
@@ -352,7 +277,7 @@ func (r *Relay) process(request request) {
 		request.client.send(okResponse{ID: request.ID(), Saved: true})
 
 		err = r.Broadcast(request.Event)
-		if err != nil {
+		if err != nil && r.logOverload {
 			log.Printf("failed to broadcast event ID %s: %v", request.ID(), err)
 		}
 
@@ -424,9 +349,12 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 		go client.read()
 
 	default:
-		// registration queue is full, drop the connection to avoid overloading, and signal a failure
 		r.lastRegistrationFail.Store(time.Now().Unix())
 		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "server is overloaded"))
 		conn.Close()
+
+		if r.logOverload {
+			log.Println("failed to register client: channel is full")
+		}
 	}
 }
