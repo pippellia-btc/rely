@@ -35,11 +35,18 @@ type Relay struct {
 	register   chan *client
 	unregister chan *client
 
+	// the last (unix) time a client registration failed due to the register channel being full
+	lastRegistrationFail atomic.Int64
+
+	// the channel used to broadcast events to all matching clients
+	broadcast chan *nostr.Event
+
 	// the queue for EVENTs, REQs and COUNTs
 	queue chan request
 
-	// the last (unix) time a client registration failed due to the register channel being full
-	lastRegistrationFail atomic.Int64
+	// the maximum number of concurrent processors consuming from the queue.
+	// To specify it, use [WithMaxProcessors]
+	maxProcessors int
 
 	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
 	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
@@ -77,7 +84,6 @@ type RelayFunctions struct {
 	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
-// NewRelayFunctions that only logs stuff, to avoid panicking on a nil method.
 func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
 		RejectConnection: []func(Stats, *http.Request) error{RecentFailure},
@@ -88,7 +94,8 @@ func newRelayFunctions() RelayFunctions {
 	}
 }
 
-// Stats exposes relay statistics useful for rejecting connections during peaks of activity. All methods are safe for concurrent use.
+// Stats exposes relay statistics useful for rejecting connections during peaks of activity.
+// All methods are safe for concurrent use.
 type Stats interface {
 	// Clients returns the number of active clients connected to the relay.
 	Clients() int
@@ -130,8 +137,9 @@ func newWebsocketOptions() websocketOptions {
 
 type Option func(*Relay)
 
-func WithDomain(d string) Option       { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
-func WithQueueCapacity(cap int) Option { return func(r *Relay) { r.queue = make(chan request, cap) } }
+func WithDomain(d string) Option     { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
+func WithQueueCapacity(c int) Option { return func(r *Relay) { r.queue = make(chan request, c) } }
+func WithMaxProcessors(n int) Option { return func(r *Relay) { r.maxProcessors = n } }
 
 func WithReadBufferSize(s int) Option       { return func(r *Relay) { r.upgrader.ReadBufferSize = s } }
 func WithWriteBufferSize(s int) Option      { return func(r *Relay) { r.upgrader.WriteBufferSize = s } }
@@ -141,7 +149,7 @@ func WithPingPeriod(d time.Duration) Option { return func(r *Relay) { r.pingPeri
 func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessageSize = s } }
 
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
-// Customize its structure with functional options (e.g., [WithDomain], [WithPingPeriod]).
+// Customize its structure with functional options (e.g., [WithDomain], [WithQueueCapacity]).
 // Customize its behaviour by writing OnEvent, OnReq and other [RelayFunctions].
 //
 // Example:
@@ -153,10 +161,13 @@ func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessa
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		queue:            make(chan request, 1000),
-		clients:          make(map[*client]struct{}, 100),
-		register:         make(chan *client, 100),
-		unregister:       make(chan *client, 100),
+		clients:       make(map[*client]struct{}, 100),
+		register:      make(chan *client, 100),
+		unregister:    make(chan *client, 100),
+		broadcast:     make(chan *nostr.Event, 1000),
+		queue:         make(chan request, 1000),
+		maxProcessors: 4,
+
 		RelayFunctions:   newRelayFunctions(),
 		websocketOptions: newWebsocketOptions(),
 	}
@@ -167,17 +178,6 @@ func NewRelay(opts ...Option) *Relay {
 
 	r.validate()
 	return r
-}
-
-// enqueue tries to add the request to the queue of the relay.
-// If it's full, it returns the error [ErrOverloaded]
-func (r *Relay) enqueue(req request) *requestError {
-	select {
-	case r.queue <- req:
-		return nil
-	default:
-		return &requestError{ID: req.ID(), Err: ErrOverloaded}
-	}
 }
 
 // validate panics if structural relay parameters are invalid, and logs warnings
@@ -191,7 +191,7 @@ func (r *Relay) validate() {
 		panic("pong wait must be greater than ping period")
 	}
 
-	if r.writeWait <= 1*time.Second {
+	if r.writeWait < 1*time.Second {
 		panic("write wait must be greater than 1s")
 	}
 
@@ -199,8 +199,33 @@ func (r *Relay) validate() {
 		panic("max message size must be greater than 512 bytes to accept nostr events")
 	}
 
+	if r.maxProcessors < 1 {
+		panic("max processors must be greater than 1 to correctly process from the queue")
+	}
+
 	if r.domain == "" {
 		log.Println("WARN: you must set the relay's domain to validate NIP-42 auth")
+	}
+}
+
+// enqueue tries to add the request to the queue of the relay.
+// If it's full, it returns [ErrOverloaded]
+func (r *Relay) enqueue(req request) *requestError {
+	select {
+	case r.queue <- req:
+		return nil
+	default:
+		return &requestError{ID: req.ID(), Err: ErrOverloaded}
+	}
+}
+
+// Broadcast the event to all clients whose subscriptions match it.
+func (r *Relay) Broadcast(e *nostr.Event) error {
+	select {
+	case r.broadcast <- e:
+		return nil
+	default:
+		return ErrOverloaded
 	}
 }
 
@@ -215,7 +240,6 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 
 	go func() {
 		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			// http.ErrServerClosed is fired when calling server.Shutdown
 			exitErr <- err
 		}
 	}()
@@ -225,11 +249,7 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		if err := server.Shutdown(ctx); err != nil {
-			return err
-		}
-
-		return nil
+		return server.Shutdown(ctx)
 
 	case err := <-exitErr:
 		return err
@@ -239,10 +259,12 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 // Start the relay in a separate goroutine. The relay will later need to be served using http.ListenAndServe.
 // Customize its behaviour by writing OnConnect, OnEvent, OnReq and other [RelayFunctions].
 func (r *Relay) Start(ctx context.Context) {
-	go r.start(ctx)
+	go r.coordinator(ctx)
+	go r.processor(ctx)
 }
 
-func (r *Relay) start(ctx context.Context) {
+// Coordinate the registration and unregistration of clients, and the broadcasting of events.
+func (r *Relay) coordinator(ctx context.Context) {
 	defer r.close()
 
 	for {
@@ -272,58 +294,11 @@ func (r *Relay) start(ctx context.Context) {
 				close(client.toSend)
 			}
 
-		case request := <-r.queue:
-			if _, ok := r.clients[request.From()]; !ok {
-				// the client has been unregistered
-				continue
-			}
-
-			switch request := request.(type) {
-			case *eventRequest:
-				err := r.OnEvent(request.client, request.Event)
-				if err != nil {
-					request.client.send(okResponse{ID: request.ID(), Saved: false, Reason: err.Error()})
-					continue
+		case event := <-r.broadcast:
+			for client := range r.clients {
+				for _, ID := range client.matchingSubscriptions(event) {
+					client.send(eventResponse{ID: ID, Event: event})
 				}
-				request.client.send(okResponse{ID: request.ID(), Saved: true})
-
-				for client := range r.clients {
-					for _, ID := range client.matchingSubscriptions(request.Event) {
-						client.send(eventResponse{ID: ID, Event: request.Event})
-					}
-				}
-
-			case *reqRequest:
-				events, err := r.OnReq(request.ctx, request.client, request.Filters)
-				if err != nil {
-					if request.ctx.Err() == nil {
-						// the error was NOT caused by the user cancelling the REQ, so we send a CLOSED
-						request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
-					}
-
-					request.client.closeSubscription(request.ID())
-					continue
-				}
-
-				for _, event := range events {
-					request.client.send(eventResponse{ID: request.ID(), Event: &event})
-				}
-				request.client.send(eoseResponse{ID: request.ID()})
-
-			case *countRequest:
-				count, approx, err := r.OnCount(request.ctx, request.client, request.Filters)
-				if err != nil {
-					if request.ctx.Err() == nil {
-						// the error was NOT caused by the user cancelling the COUNT, so we send a CLOSED
-						request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
-					}
-
-					request.client.closeSubscription(request.ID())
-					continue
-				}
-
-				request.client.send(countResponse{ID: request.ID(), Count: count, Approx: approx})
-				request.client.closeSubscription(request.ID())
 			}
 		}
 	}
@@ -338,6 +313,80 @@ func (r *Relay) close() {
 		for _, sub := range client.subscriptions {
 			client.send(closedResponse{ID: sub.ID, Reason: "shutting down the relay"})
 		}
+	}
+}
+
+// Process the requests in the relay queue with [Relay.maxProcessors] processors,
+// by appliying the user defined [RelayFunctions].
+func (r *Relay) processor(ctx context.Context) {
+	sem := make(chan struct{}, r.maxProcessors)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case request := <-r.queue:
+			if request.IsExpired() {
+				continue
+			}
+
+			sem <- struct{}{}
+			go func() {
+				r.process(request)
+				<-sem
+			}()
+		}
+	}
+}
+
+// process the request according to its type by using the provided [RelayFunctions].
+func (r *Relay) process(request request) {
+	switch request := request.(type) {
+	case *eventRequest:
+		err := r.OnEvent(request.client, request.Event)
+		if err != nil {
+			request.client.send(okResponse{ID: request.ID(), Saved: false, Reason: err.Error()})
+			return
+		}
+		request.client.send(okResponse{ID: request.ID(), Saved: true})
+
+		err = r.Broadcast(request.Event)
+		if err != nil {
+			log.Printf("failed to broadcast event ID %s: %v", request.ID(), err)
+		}
+
+	case *reqRequest:
+		events, err := r.OnReq(request.ctx, request.client, request.Filters)
+		if err != nil {
+			if request.ctx.Err() == nil {
+				// the error was NOT caused by the user cancelling the REQ, so we send a CLOSED
+				request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
+			}
+
+			request.client.closeSubscription(request.ID())
+			return
+		}
+
+		for _, event := range events {
+			request.client.send(eventResponse{ID: request.ID(), Event: &event})
+		}
+		request.client.send(eoseResponse{ID: request.ID()})
+
+	case *countRequest:
+		count, approx, err := r.OnCount(request.ctx, request.client, request.Filters)
+		if err != nil {
+			if request.ctx.Err() == nil {
+				// the error was NOT caused by the user cancelling the COUNT, so we send a CLOSED
+				request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
+			}
+
+			request.client.closeSubscription(request.ID())
+			return
+		}
+
+		request.client.send(countResponse{ID: request.ID(), Count: count, Approx: approx})
+		request.client.closeSubscription(request.ID())
 	}
 }
 
@@ -371,12 +420,11 @@ func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
 
 	select {
 	case r.register <- client:
-		// successfully added client to registration queue, start reading and writing
 		go client.write()
 		go client.read()
 
 	default:
-		// the registration queue is full, drop the connection to avoid overloading, and signal a failure
+		// registration queue is full, drop the connection to avoid overloading, and signal a failure
 		r.lastRegistrationFail.Store(time.Now().Unix())
 		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "server is overloaded"))
 		conn.Close()

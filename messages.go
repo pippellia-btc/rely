@@ -28,11 +28,14 @@ var (
 	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
 )
 
-// request is a minimal interface that must be fullfilled by all requests that
-// should be processed in the [Relay.start].
 type request interface {
+	// ID returns a unique identifier for the request within the scope of its client.
+	// IDs are not globally unique across different clients.
 	ID() string
-	From() *client
+
+	// IsExpired reports whether the request should be skipped,
+	// due to client unregistration or context cancellation.
+	IsExpired() bool
 }
 
 type eventRequest struct {
@@ -40,8 +43,8 @@ type eventRequest struct {
 	Event  *nostr.Event
 }
 
-func (e *eventRequest) ID() string    { return e.Event.ID }
-func (e *eventRequest) From() *client { return e.client }
+func (e *eventRequest) ID() string      { return e.Event.ID }
+func (e *eventRequest) IsExpired() bool { return e.client.isUnregistering.Load() }
 
 type reqRequest struct {
 	subID string
@@ -51,8 +54,8 @@ type reqRequest struct {
 	Filters nostr.Filters
 }
 
-func (r *reqRequest) ID() string    { return r.subID }
-func (r *reqRequest) From() *client { return r.client }
+func (r *reqRequest) ID() string      { return r.subID }
+func (r *reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
 
 // Subscription creates the subscription associated with the [reqRequest].
 func (r *reqRequest) Subscription() Subscription {
@@ -69,8 +72,8 @@ type countRequest struct {
 	Filters nostr.Filters
 }
 
-func (c *countRequest) ID() string    { return c.subID }
-func (c *countRequest) From() *client { return c.client }
+func (c *countRequest) ID() string      { return c.subID }
+func (c *countRequest) IsExpired() bool { return c.ctx.Err() != nil || c.client.isUnregistering.Load() }
 
 // Subscription creates the subscription associated with the [countRequest].
 func (c *countRequest) Subscription() Subscription {

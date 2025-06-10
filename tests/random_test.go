@@ -47,7 +47,9 @@ func TestRandom(t *testing.T) {
 
 		relay := NewRelay(
 			WithQueueCapacity(10000),
+			WithMaxProcessors(10),
 		)
+
 		relay.OnConnect = dummyOnConnect
 		relay.OnEvent = dummyOnEvent
 		relay.OnReq = dummyOnReq
@@ -285,7 +287,7 @@ func (c *client) read(
 }
 
 func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 15
+	const statsLines = 16
 	var first = true
 
 	ticker := time.NewTicker(1 * time.Second)
