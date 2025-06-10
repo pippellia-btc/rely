@@ -47,7 +47,6 @@ func main() {
 
 	relay := NewRelay(
 		WithDomain("example.com"), // required for validating NIP-42 auth
-		WithQueueCapacity(10000),  // higher capacity allows traffic bursts without dropping requests
 	)
 
 	relay.RejectConnection = append(relay.RejectConnection, func(_ rely.Stats, r *http.Request) error {
