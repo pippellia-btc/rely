@@ -23,14 +23,14 @@ Fine-tune core parameters using functional options:
 ```golang
 relay := NewRelay(
     WithDomain("example.com"),       // required for proper NIP-42 validation
-    WithQueueCapacity(5000),         // increases capacity for traffic bursts
-    WithPingPeriod(30 * time.Second),
+	WithQueueCapacity(10_000),   // increase capacity to absorb traffic bursts (higher RAM)
+	WithMaxProcessors(10),       // increase concurrent processors for faster execution (higher CPU)
 )
 ```
 
 ### Behavioral Customization
 
-Define behavior by simply defining `RelayFunctions`:
+Define behavior by simply writing `RelayFunctions`:
 ```golang
 func main() {
 	// ...
@@ -62,15 +62,15 @@ Despite its initial simplicity, achieving deep customization means dealing with 
 For the brave among you, here is the [khatru relay struct](https://github.com/fiatjaf/khatru/blob/master/relay.go#L54), and for the even braver, here is the almighty [HandleWebsocket method](https://github.com/fiatjaf/khatru/blob/master/handlers.go#L54).
 
 As a [grug brain dev](https://grugbrain.dev/), I believe that complexity kills good software.
-Instead, I've built a simple architecture (see `/docs`) that doesn't introduce unnecessary abstractions:
+Instead, I've built a simple architecture that doesn't introduce unnecessary abstractions:
 There is a relay, there are clients connecting to it, each with their own subscriptions. That's it.
 
-Also, rely is [properly tested](#well-tested).
+![](architecture.png)
 
 ## Well tested
 How do you test a relay framework?
 
-You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/main/tests/random_test.go) with thousands of connections, random events, random filters, random disconnects, and see what breaks. Then you fix it and repeat. I still expect bugs, so please open a well-written issue and I'll fix it.
+You bombard [a dummy implementation](https://github.com/pippellia-btc/rely/blob/main/tests/random_test.go) with thousands of connections, random events, random filters, random disconnects, and see what breaks. Then you fix it and repeat. If you find bugs please open a well-written issue and I'll fix it.
 
 [Here is a video](https://m.primal.net/QECM.mp4) showing rely handling up to 3500 concurrent clients, each sending one EVENT/REQ/s, all while handling 100 new http requests/s.
 
