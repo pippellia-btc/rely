@@ -35,9 +35,11 @@ type Relay struct {
 	// the queue for EVENTs, REQs and COUNTs
 	queue chan request
 
+	RelayFunctions
+
 	systemOptions
 	websocketOptions
-	RelayFunctions
+	info []byte // NIP-11 info document json
 }
 
 // RelayFunctions is a collection of functions the users of rely can customize.
@@ -116,9 +118,11 @@ func NewRelay(opts ...Option) *Relay {
 		broadcast:  make(chan *nostr.Event, 1000),
 		queue:      make(chan request, 1000),
 
+		RelayFunctions: newRelayFunctions(),
+
 		systemOptions:    newSystemOptions(),
 		websocketOptions: newWebsocketOptions(),
-		RelayFunctions:   newRelayFunctions(),
+		info:             newRelayInfo(),
 	}
 
 	for _, opt := range opts {
@@ -154,7 +158,7 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 }
 
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
-// It's a blocking operation, that stops only when the context get cancelled.
+// It's a blocking operation, that stops only when the context gets cancelled.
 // Use [Relay.Start] if you don't want to listen and serve right away.
 // Customize its behaviour by writing OnConnect, OnEvent, OnReq and other [RelayFunctions].
 func (r *Relay) StartAndServe(ctx context.Context, address string) error {
@@ -315,14 +319,19 @@ func (r *Relay) process(request request) {
 	}
 }
 
-// ServeHTTP implements the [http.Handler] interface, only handling WebSocket connections.
+// ServeHTTP implements the [http.Handler] interface, handling WebSocket connections
+// and NIP-11 Relay Information Document requests.
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if req.Header.Get("Upgrade") == "websocket" {
+	switch {
+	case req.Header.Get("Upgrade") == "websocket":
 		r.ServeWS(w, req)
-		return
-	}
 
-	http.Error(w, "Expected WebSocket connection", http.StatusUpgradeRequired)
+	case req.Header.Get("Accept") == "application/nostr+json":
+		r.ServeNIP11(w)
+
+	default:
+		http.Error(w, "Unsupported request", http.StatusBadRequest)
+	}
 }
 
 // ServeWS upgrades the http request to a websocket, creates a [client], and registers it with the [Relay].
@@ -357,4 +366,12 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 			log.Println("failed to register client: channel is full")
 		}
 	}
+}
+
+// ServeNIP11 serves the NIP-11 relay information document.
+func (r *Relay) ServeNIP11(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/nostr+json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(r.info)
 }
