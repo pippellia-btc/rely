@@ -22,9 +22,9 @@ Fine-tune core parameters using functional options:
 
 ```golang
 relay := NewRelay(
-    WithDomain("example.com"),       // required for proper NIP-42 validation
-	WithQueueCapacity(10_000),   // increase capacity to absorb traffic bursts (higher RAM)
-	WithMaxProcessors(10),       // increase concurrent processors for faster execution (higher CPU)
+    WithDomain("example.com"),      // required for proper NIP-42 validation
+	WithQueueCapacity(10_000),   	// increase capacity to absorb traffic bursts (higher RAM)
+	WithMaxProcessors(10),       	// increase concurrent processors for faster execution (higher CPU)
 )
 ```
 

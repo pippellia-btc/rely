@@ -315,19 +315,19 @@ func (r *Relay) process(request request) {
 	}
 }
 
-// ServeHTTP implements the http.Handler interface, only handling WebSocket connections.
+// ServeHTTP implements the [http.Handler] interface, only handling WebSocket connections.
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Header.Get("Upgrade") == "websocket" {
-		r.HandleWebsocket(w, req)
+		r.ServeWS(w, req)
 		return
 	}
 
 	http.Error(w, "Expected WebSocket connection", http.StatusUpgradeRequired)
 }
 
-// HandleWebsocket upgrades the http request to a websocket, creates a [client], and registers it with the [Relay].
+// ServeWS upgrades the http request to a websocket, creates a [client], and registers it with the [Relay].
 // The client will then read and write to the websocket in two separate goroutines, preventing multiple readers/writers.
-func (r *Relay) HandleWebsocket(w http.ResponseWriter, req *http.Request) {
+func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	for _, reject := range r.RejectConnection {
 		if err := reject(r, req); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
