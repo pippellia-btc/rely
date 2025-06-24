@@ -239,8 +239,8 @@ func (r *Relay) close() {
 	defer log.Println("relay stopped")
 
 	for client := range r.clients {
-		for _, sub := range client.subscriptions {
-			client.send(closedResponse{ID: sub.ID, Reason: "shutting down the relay"})
+		for i := range client.subs {
+			client.send(closedResponse{ID: client.subs[i].ID, Reason: "shutting down the relay"})
 		}
 	}
 }
@@ -297,8 +297,8 @@ func (r *Relay) process(request request) {
 			return
 		}
 
-		for _, event := range events {
-			request.client.send(eventResponse{ID: request.ID(), Event: &event})
+		for i := range events {
+			request.client.send(eventResponse{ID: request.ID(), Event: &events[i]})
 		}
 		request.client.send(eoseResponse{ID: request.ID()})
 

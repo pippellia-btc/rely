@@ -24,7 +24,7 @@ func randomReqRequest() ([]byte, error) {
 	request := []any{"REQ", ID}
 
 	filters := rg.IntN(5)
-	for i := 0; i < filters; i++ {
+	for range filters {
 		request = append(request, randomFilter())
 	}
 
@@ -40,7 +40,7 @@ func randomCountRequest() ([]byte, error) {
 	request := []any{"COUNT", ID}
 
 	filters := rg.IntN(5)
-	for i := 0; i < filters; i++ {
+	for range filters {
 		request = append(request, randomFilter())
 	}
 
@@ -89,7 +89,7 @@ func randomFilter() nostr.Filter {
 func randomTagMap(max int) nostr.TagMap {
 	size := rg.IntN(max)
 	m := make(nostr.TagMap, size)
-	for i := 0; i < size; i++ {
+	for range size {
 		m[randomString(3)] = randomTag()
 	}
 	return m
@@ -107,7 +107,7 @@ func randomSlice[T any](max int, genFunc func() T) []T {
 func randomTag() nostr.Tag {
 	l := rg.IntN(8)
 	tag := make(nostr.Tag, l)
-	for i := 0; i < l; i++ {
+	for i := range l {
 		length := rg.IntN(10)
 		tag[i] = randomString(length)
 	}
@@ -125,30 +125,6 @@ func randomString(l int) string {
 }
 
 func randomString64() string { return randomString(64) }
-
-// fibonacci returns the n-th fibonacci number. It's used to simulate some meaningful work.
-func fibonacci(n int) int {
-	switch {
-	case n < 1:
-		return 0
-
-	case n == 1:
-		return 1
-
-	default:
-		return fibonacci(n-1) + fibonacci(n-2)
-	}
-}
-
-func BenchmarkFibonacci(b *testing.B) {
-	for _, n := range []int{5, 10, 15, 20, 25, 30} {
-		b.Run(fmt.Sprintf("n = %d", n), func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				fibonacci(n)
-			}
-		})
-	}
-}
 
 func validateLabel(labels []string) func([]byte) error {
 	return func(data []byte) error {
@@ -177,4 +153,28 @@ func parseLabel(data []byte) (string, error) {
 	}
 
 	return label, nil
+}
+
+// fibonacci returns the n-th fibonacci number. It's used to simulate some meaningful work.
+func fibonacci(n int) int {
+	switch {
+	case n < 1:
+		return 0
+
+	case n == 1:
+		return 1
+
+	default:
+		return fibonacci(n-1) + fibonacci(n-2)
+	}
+}
+
+func BenchmarkFibonacci(b *testing.B) {
+	for _, n := range []int{5, 10, 15, 20, 25, 30} {
+		b.Run(fmt.Sprintf("n = %d", n), func(b *testing.B) {
+			for range b.N {
+				fibonacci(n)
+			}
+		})
+	}
 }

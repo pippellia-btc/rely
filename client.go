@@ -51,9 +51,9 @@ type Subscription struct {
 // It's responsible for reading and validating the requests, and for writing the [response]s
 // to all matching [Subscription]s.
 type client struct {
-	mu            sync.RWMutex
-	ip            string
-	subscriptions []Subscription
+	mu   sync.RWMutex
+	ip   string
+	subs []Subscription
 
 	// NIP-42
 	pubkey    string
@@ -72,13 +72,12 @@ func (c *client) Subscriptions() []Subscription {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	subs := make([]Subscription, 0, len(c.subscriptions))
-	for _, s := range c.subscriptions {
-		if s.typ == "REQ" {
-			subs = append(subs, s)
+	subs := make([]Subscription, 0, len(c.subs))
+	for i := range c.subs {
+		if c.subs[i].typ == "REQ" {
+			subs = append(subs, c.subs[i])
 		}
 	}
-
 	return subs
 }
 
@@ -118,11 +117,15 @@ func (c *client) closeSubscription(ID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for i, sub := range c.subscriptions {
-		if sub.ID == ID {
-			// cancels the context of the associated REQ/COUNT and removes the subscription from the client
-			sub.cancel()
-			c.subscriptions = append(c.subscriptions[:i], c.subscriptions[i+1:]...)
+	for i := range c.subs {
+		if c.subs[i].ID == ID {
+			// cancels the context of the associated REQ/COUNT
+			c.subs[i].cancel()
+
+			// remove subscription
+			last := len(c.subs) - 1
+			c.subs[i], c.subs[last] = c.subs[last], Subscription{}
+			c.subs = c.subs[:last]
 			return
 		}
 	}
@@ -135,19 +138,19 @@ func (c *client) openSubscription(sub Subscription) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	pos := slices.IndexFunc(c.subscriptions, func(s Subscription) bool {
+	pos := slices.IndexFunc(c.subs, func(s Subscription) bool {
 		return s.ID == sub.ID
 	})
 
 	switch pos {
 	case -1:
 		// the subscription has an ID that was never seen, so we add a new subscription
-		c.subscriptions = append(c.subscriptions, sub)
+		c.subs = append(c.subs, sub)
 
 	default:
 		// the subscription is overwriting an existing subscription, so we cancel and remove the old for the new
-		c.subscriptions[pos].cancel()
-		c.subscriptions[pos] = sub
+		c.subs[pos].cancel()
+		c.subs[pos] = sub
 	}
 }
 
@@ -157,9 +160,9 @@ func (c *client) matchingSubscriptions(event *nostr.Event) []string {
 	defer c.mu.RUnlock()
 
 	var IDs []string
-	for _, sub := range c.subscriptions {
-		if sub.typ == "REQ" && sub.Filters.Match(event) {
-			IDs = append(IDs, sub.ID)
+	for i := range c.subs {
+		if c.subs[i].typ == "REQ" && c.subs[i].Filters.Match(event) {
+			IDs = append(IDs, c.subs[i].ID)
 		}
 	}
 	return IDs
