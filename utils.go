@@ -122,6 +122,7 @@ func isUnexpectedClose(err error) bool {
 	return websocket.IsUnexpectedCloseError(err,
 		websocket.CloseNormalClosure,
 		websocket.CloseGoingAway,
+		websocket.CloseNoStatusReceived,
 		websocket.CloseAbnormalClosure)
 }
 
