@@ -153,6 +153,9 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 	case r.broadcast <- e:
 		return nil
 	default:
+		if r.logOverload {
+			log.Printf("failed to broadcast event ID %s: %v", e.ID, ErrOverloaded)
+		}
 		return ErrOverloaded
 	}
 }
@@ -278,12 +281,9 @@ func (r *Relay) process(request request) {
 			request.client.send(okResponse{ID: request.ID(), Saved: false, Reason: err.Error()})
 			return
 		}
-		request.client.send(okResponse{ID: request.ID(), Saved: true})
 
-		err = r.Broadcast(request.Event)
-		if err != nil && r.logOverload {
-			log.Printf("failed to broadcast event ID %s: %v", request.ID(), err)
-		}
+		request.client.send(okResponse{ID: request.ID(), Saved: true})
+		r.Broadcast(request.Event)
 
 	case *reqRequest:
 		events, err := r.OnReq(request.ctx, request.client, request.Filters)
