@@ -30,6 +30,10 @@ type Client interface {
 	// To initiate the authentication, call [Client.SendAuthChallenge]
 	Pubkey() string
 
+	// LastSendFail returns the last time the client was unable to keep up with
+	// incoming messages, causing some to be dropped.
+	LastSendFail() time.Time
+
 	// SendAuthChallenge sends the client a newly generated AUTH challenge.
 	// This resets the authentication state: any previously authenticated pubkey is cleared,
 	// and a new challenge is generated and sent
@@ -64,9 +68,11 @@ type client struct {
 	toSend chan response
 
 	isUnregistering atomic.Bool
+	lastSendFail    atomic.Int64
 }
 
-func (c *client) IP() string { return c.ip }
+func (c *client) IP() string              { return c.ip }
+func (c *client) LastSendFail() time.Time { return time.Unix(c.lastSendFail.Load(), 0) }
 
 func (c *client) Subscriptions() []Subscription {
 	c.mu.RLock()
@@ -232,7 +238,6 @@ func (c *client) validateAuth(auth *authRequest) *requestError {
 	if err := InvalidSignature(c, auth.Event); err != nil {
 		return &requestError{ID: auth.ID, Err: err}
 	}
-
 	return nil
 }
 
@@ -403,7 +408,10 @@ func (c *client) send(r response) {
 	select {
 	case c.toSend <- r:
 	default:
-		if c.relay.logOverload {
+		lastFail := c.LastSendFail()
+		c.lastSendFail.Store(time.Now().Unix())
+
+		if c.relay.logOverload && time.Since(lastFail) > time.Second {
 			log.Printf("failed to send the client with IP %s the response %v: channel is full", c.ip, r)
 		}
 	}
