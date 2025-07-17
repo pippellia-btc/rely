@@ -30,9 +30,9 @@ type Client interface {
 	// To initiate the authentication, call [Client.SendAuthChallenge]
 	Pubkey() string
 
-	// LastSendFail returns the last time the client was unable to keep up with
+	// LastOverload returns the last time the client was unable to keep up with
 	// incoming messages, causing some to be dropped.
-	LastSendFail() time.Time
+	LastOverload() time.Time
 
 	// SendAuthChallenge sends the client a newly generated AUTH challenge.
 	// This resets the authentication state: any previously authenticated pubkey is cleared,
@@ -72,7 +72,7 @@ type client struct {
 }
 
 func (c *client) IP() string              { return c.ip }
-func (c *client) LastSendFail() time.Time { return time.Unix(c.lastSendFail.Load(), 0) }
+func (c *client) LastOverload() time.Time { return time.Unix(c.lastSendFail.Load(), 0) }
 
 func (c *client) Subscriptions() []Subscription {
 	c.mu.RLock()
@@ -408,7 +408,7 @@ func (c *client) send(r response) {
 	select {
 	case c.toSend <- r:
 	default:
-		lastFail := c.LastSendFail()
+		lastFail := c.LastOverload()
 		c.lastSendFail.Store(time.Now().Unix())
 
 		if c.relay.logOverload && time.Since(lastFail) > time.Second {
