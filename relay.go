@@ -72,7 +72,7 @@ type RelayFunctions struct {
 
 func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
-		RejectConnection: []func(Stats, *http.Request) error{RecentFailure},
+		RejectConnection: []func(Stats, *http.Request) error{RegistrationFailWithin(time.Second)},
 		RejectEvent:      []func(Client, *nostr.Event) error{InvalidID, InvalidSignature},
 		OnConnect:        func(Client) error { return nil },
 		OnEvent:          logEvent,
@@ -363,7 +363,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		conn.Close()
 
 		if r.logOverload {
-			log.Println("failed to register client: channel is full")
+			log.Printf("failed to register client with IP %s: channel is full", client.ip)
 		}
 	}
 }

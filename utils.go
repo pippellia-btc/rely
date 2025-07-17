@@ -38,12 +38,15 @@ func InvalidSignature(c Client, e *nostr.Event) error {
 	return nil
 }
 
-// RecentFailure returns an error if a client registration has recently failed.
-func RecentFailure(s Stats, r *http.Request) error {
-	if time.Since(s.LastRegistrationFail()) < 2*time.Second {
-		return ErrOverloaded
+// RegistrationFailWithin returns a RejectConnection function that
+// returns ErrOverloaded if a client registration has failed within the given duration.
+func RegistrationFailWithin(d time.Duration) func(Stats, *http.Request) error {
+	return func(s Stats, r *http.Request) error {
+		if time.Since(s.LastRegistrationFail()) < d {
+			return ErrOverloaded
+		}
+		return nil
 	}
-	return nil
 }
 
 // Extracts the IP address from the http request.
