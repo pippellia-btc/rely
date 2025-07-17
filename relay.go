@@ -18,56 +18,45 @@ var (
 )
 
 type Relay struct {
-	// the set of active clients
-	clients      map[*client]struct{}
-	clientsCount atomic.Int64
+	clients              map[*client]struct{} // set of connected clients
+	clientsCount         atomic.Int64
+	lastRegistrationFail atomic.Int64 // last time a client registration failed
 
-	// the channels used to register/unregister a client
 	register   chan *client
 	unregister chan *client
-
-	// the last (unix) time a client registration failed due to the register channel being full
-	lastRegistrationFail atomic.Int64
-
-	// the channel used to broadcast events to all matching clients
-	broadcast chan *nostr.Event
-
-	// the queue for EVENTs, REQs and COUNTs
-	queue chan request
+	broadcast  chan *nostr.Event // used to broadcast events to all matching clients
+	queue      chan request      // the queue for EVENTs, REQs and COUNTs
 
 	RelayFunctions
 
 	systemOptions
 	websocketOptions
-	info []byte // NIP-11 info document json
 }
 
-// RelayFunctions is a collection of functions the users of rely can customize.
-// These functions MUST not be changed when the relay is running, and MUST be thread-safe.
+// RelayFunctions consist of two groups of functions that define the behavior of the relay.
+//
+//   - Reject functions:
+//
+//     These are used to conditionally reject incoming data. Each slice is evaluated
+//     in order, and if any function returns an error, the input is rejected.
+//
+//   - On functions:
+//
+//     These define the actions to perform after accepting various client inputs.
+//     They allow you to hook into and customize how the relay handles connections,
+//     EVENTs, REQs, and COUNTs.
+//
+// All functions must be thread-safe and must not be modified at runtime.
 type RelayFunctions struct {
-	// a connection is accepted if and only if all errs are nil.
 	RejectConnection []func(Stats, *http.Request) error
+	RejectEvent      []func(Client, *nostr.Event) error
+	RejectReq        []func(Client, nostr.Filters) error
+	RejectCount      []func(Client, nostr.Filters) error
 
-	// an EVENT is accepted if and only if all errs are nil.
-	RejectEvent []func(Client, *nostr.Event) error
-
-	// a REQ is accepted if and only if all errs are nil.
-	RejectReq []func(Client, nostr.Filters) error
-
-	// a COUNT is accepted if and only if all errs are nil.
-	RejectCount []func(Client, nostr.Filters) error
-
-	// the actions to perform after establishing a connection with the specified client.
-	OnConnect func(Client) error
-
-	// the actions to perform on an EVENT coming from the specified client.
-	OnEvent func(Client, *nostr.Event) error
-
-	// the actions to perform on a REQ coming from the specified client.
-	OnReq func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
-
-	// the actions to perform on a COUNT coming from the specified client.
-	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
+	OnConnect func(Client) error                                                                 // called after a connection is established
+	OnEvent   func(Client, *nostr.Event) error                                                   // called when an EVENT is received.
+	OnReq     func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)                // called when a REQ is received.
+	OnCount   func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error) // called when a COUNT is received.
 }
 
 func newRelayFunctions() RelayFunctions {
@@ -123,7 +112,6 @@ func NewRelay(opts ...Option) *Relay {
 
 		systemOptions:    newSystemOptions(),
 		websocketOptions: newWebsocketOptions(),
-		info:             newRelayInfo(),
 	}
 
 	for _, opt := range opts {

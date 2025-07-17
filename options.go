@@ -23,7 +23,7 @@ type Option func(*Relay)
 
 type systemOptions struct {
 	// the maximum number of concurrent processors consuming from the [Relay.queue].
-	// To specify it, use [WithMaxProcessors]
+	// To specify it, use [WithMaxProcessors].
 	maxProcessors int
 
 	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
@@ -33,16 +33,46 @@ type systemOptions struct {
 	// logOverload non-fatal internal conditions such as dropped events or failed client
 	// registrations due to full channels. Set it to true with [WithOverloadLogs].
 	logOverload bool
+
+	// the NIP-11 relay info document json. To specify it, use [WithInfo].
+	info []byte
 }
 
 func newSystemOptions() systemOptions {
-	return systemOptions{maxProcessors: 4}
+	return systemOptions{
+		maxProcessors: 4,
+		info:          newRelayInfo(),
+	}
+}
+
+func newRelayInfo() []byte {
+	info := nip11.RelayInformationDocument{
+		Software:      "https://github.com/pippellia-btc/rely",
+		SupportedNIPs: []any{1, 11, 42},
+	}
+
+	json, err := json.Marshal(info)
+	if err != nil {
+		panic("failed to marshal NIP-11 document: " + err.Error())
+	}
+	return json
 }
 
 func WithMaxProcessors(n int) Option { return func(r *Relay) { r.maxProcessors = n } }
 func WithDomain(d string) Option     { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
 func WithOverloadLogs() Option       { return func(r *Relay) { r.logOverload = true } }
 func WithQueueCapacity(c int) Option { return func(r *Relay) { r.queue = make(chan request, c) } }
+
+func WithInfo(info nip11.RelayInformationDocument) Option {
+	return func(r *Relay) {
+		json, err := json.Marshal(info)
+		if err != nil {
+			panic("failed to marshal NIP-11 document: " + err.Error())
+		}
+
+		r.info = json
+	}
+}
 
 type websocketOptions struct {
 	upgrader       websocket.Upgrader
@@ -72,30 +102,6 @@ func WithWriteWait(d time.Duration) Option  { return func(r *Relay) { r.writeWai
 func WithPongWait(d time.Duration) Option   { return func(r *Relay) { r.pongWait = d } }
 func WithPingPeriod(d time.Duration) Option { return func(r *Relay) { r.pingPeriod = d } }
 func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessageSize = s } }
-
-func newRelayInfo() []byte {
-	info := nip11.RelayInformationDocument{
-		Software:      "https://github.com/pippellia-btc/rely",
-		SupportedNIPs: []any{1, 11, 42},
-	}
-
-	json, err := json.Marshal(info)
-	if err != nil {
-		panic("failed to marshal NIP-11 document: " + err.Error())
-	}
-	return json
-}
-
-func WithInfo(info nip11.RelayInformationDocument) Option {
-	return func(r *Relay) {
-		json, err := json.Marshal(info)
-		if err != nil {
-			panic("failed to marshal NIP-11 document: " + err.Error())
-		}
-
-		r.info = json
-	}
-}
 
 // validate panics if structural parameters are invalid, and logs warnings
 // for non-fatal but potentially misconfigured settings (e.g., missing domain).
