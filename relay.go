@@ -154,7 +154,7 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 		return nil
 	default:
 		if r.logOverload {
-			log.Printf("failed to broadcast event ID %s: %v", e.ID, ErrOverloaded)
+			log.Printf("failed to broadcast event with ID %s: %v", e.ID, ErrOverloaded)
 		}
 		return ErrOverloaded
 	}
