@@ -2,7 +2,6 @@ package rely
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -45,17 +44,6 @@ func RegistrationFailWithin(d time.Duration) func(Stats, *http.Request) error {
 	return func(s Stats, r *http.Request) error {
 		if time.Since(s.LastRegistrationFail()) < d {
 			return ErrOverloaded
-		}
-		return nil
-	}
-}
-
-// ClientOverloadWithin returns a RejectReq function that errs if the client
-// has been overloaded (unable to keep up with message rate) within the given duration.
-func ClientOverloadWithin(d time.Duration) func(Client, nostr.Filters) error {
-	return func(c Client, f nostr.Filters) error {
-		if time.Since(c.LastOverload()) < d {
-			return errors.New("client too slow to keep up with message rate")
 		}
 		return nil
 	}

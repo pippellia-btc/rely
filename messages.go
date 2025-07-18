@@ -121,7 +121,7 @@ func (e *requestError) Is(target error) bool {
 	}
 
 	t, ok := target.(*requestError)
-	if !ok {
+	if !ok || t == nil {
 		return false
 	}
 
@@ -228,10 +228,17 @@ func parseID(data json.RawMessage) (string, *requestError) {
 
 func parseFilters(array []json.RawMessage) (filters nostr.Filters, err error) {
 	filters = make(nostr.Filters, len(array))
-	for i, filter := range array {
-		if err := json.Unmarshal(filter, &filters[i]); err != nil {
+	for i, data := range array {
+		var filter nostr.Filter
+		if err = json.Unmarshal(data, &filter); err != nil {
 			return nil, fmt.Errorf("%w: failed to decode filter at index %d: %s", ErrInvalidReqRequest, i, err)
 		}
+
+		if filter.LimitZero || filter.Limit < 0 {
+			filter.Limit = 0
+		}
+
+		filters[i] = filter
 	}
 
 	return filters, nil

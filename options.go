@@ -26,13 +26,26 @@ type systemOptions struct {
 	// To specify it, use [WithMaxProcessors].
 	maxProcessors int
 
-	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
-	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
-	domain string
+	// the maximum number of responses sent to a client at once.
+	//
+	// To specify it, use [WithClientResponseLimit].
+	//
+	// For each REQ, the framework dynamically adjusts the combined budget across all filters
+	// to match the remaining capacity of the client's response channel:
+	//
+	//     responseLimit - len(client.toSend)
+	//
+	// This ensures that the total number of events returned never exceeds what can be buffered
+	// and sent to the client, enforcing per-client backpressure and preventing overproduction of responses.
+	responseLimit int
 
 	// logOverload non-fatal internal conditions such as dropped events or failed client
 	// registrations due to full channels. Set it to true with [WithOverloadLogs].
 	logOverload bool
+
+	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
+	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
+	domain string
 
 	// the NIP-11 relay info document json. To specify it, use [WithInfo].
 	info []byte
@@ -41,6 +54,7 @@ type systemOptions struct {
 func newSystemOptions() systemOptions {
 	return systemOptions{
 		maxProcessors: 4,
+		responseLimit: 1000,
 		info:          newRelayInfo(),
 	}
 }
@@ -58,10 +72,11 @@ func newRelayInfo() []byte {
 	return json
 }
 
-func WithMaxProcessors(n int) Option { return func(r *Relay) { r.maxProcessors = n } }
-func WithDomain(d string) Option     { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
-func WithOverloadLogs() Option       { return func(r *Relay) { r.logOverload = true } }
-func WithQueueCapacity(c int) Option { return func(r *Relay) { r.queue = make(chan request, c) } }
+func WithMaxProcessors(n int) Option       { return func(r *Relay) { r.maxProcessors = n } }
+func WithClientResponseLimit(n int) Option { return func(r *Relay) { r.responseLimit = n } }
+func WithDomain(d string) Option           { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
+func WithOverloadLogs() Option             { return func(r *Relay) { r.logOverload = true } }
+func WithQueueCapacity(c int) Option       { return func(r *Relay) { r.queue = make(chan request, c) } }
 
 func WithInfo(info nip11.RelayInformationDocument) Option {
 	return func(r *Relay) {
@@ -107,15 +122,15 @@ func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessa
 // for non-fatal but potentially misconfigured settings (e.g., missing domain).
 func (r *Relay) validate() {
 	if r.pingPeriod < 1*time.Second {
-		panic("ping period must be greater than 1s")
+		panic("ping period must be greater than 1s to function reliably")
 	}
 
 	if r.pongWait <= r.pingPeriod {
-		panic("pong wait must be greater than ping period")
+		panic("pong wait must be greater than ping period to function reliably")
 	}
 
 	if r.writeWait < 1*time.Second {
-		panic("write wait must be greater than 1s")
+		panic("write wait must be greater than 1s to function reliably")
 	}
 
 	if r.maxMessageSize < 512 {
@@ -124,6 +139,10 @@ func (r *Relay) validate() {
 
 	if r.maxProcessors < 1 {
 		panic("max processors must be greater than 1 to correctly process from the queue")
+	}
+
+	if r.responseLimit < 1 {
+		panic("client response limit must be greater than 1 to allow responses to be sent")
 	}
 
 	if r.domain == "" {

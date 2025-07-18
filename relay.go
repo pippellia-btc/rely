@@ -19,13 +19,13 @@ var (
 
 type Relay struct {
 	clients              map[*client]struct{} // set of connected clients
-	clientsCount         atomic.Int64
-	lastRegistrationFail atomic.Int64 // last time a client registration failed
+	clientsCount         atomic.Int64         // number of connected clients
+	lastRegistrationFail atomic.Int64         // last time a client registration failed
 
 	register   chan *client
 	unregister chan *client
-	broadcast  chan *nostr.Event // used to broadcast events to all matching clients
 	queue      chan request      // the queue for EVENTs, REQs and COUNTs
+	broadcast  chan *nostr.Event // used to broadcast events to all matching clients
 
 	RelayFunctions
 
@@ -53,16 +53,15 @@ type RelayFunctions struct {
 	RejectReq        []func(Client, nostr.Filters) error
 	RejectCount      []func(Client, nostr.Filters) error
 
-	OnConnect func(Client) error                                                                 // called after a connection is established
-	OnEvent   func(Client, *nostr.Event) error                                                   // called when an EVENT is received.
-	OnReq     func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)                // called when a REQ is received.
-	OnCount   func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error) // called when a COUNT is received.
+	OnConnect func(Client) error
+	OnEvent   func(Client, *nostr.Event) error
+	OnReq     func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
+	OnCount   func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
 func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
 		RejectConnection: []func(Stats, *http.Request) error{RegistrationFailWithin(time.Second)},
-		RejectReq:        []func(Client, nostr.Filters) error{ClientOverloadWithin(time.Second)},
 		RejectEvent:      []func(Client, *nostr.Event) error{InvalidID, InvalidSignature},
 		OnConnect:        func(Client) error { return nil },
 		OnEvent:          logEvent,
@@ -176,7 +175,7 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	}
 }
 
-// Start the relay in a separate goroutine. The relay will later need to be served using http.ListenAndServe.
+// Start the relay in separate goroutines. The relay will later need to be served using http.ListenAndServe.
 // Customize its behaviour by writing OnConnect, OnEvent, OnReq and other [RelayFunctions].
 func (r *Relay) Start(ctx context.Context) {
 	go r.coordinator(ctx)
@@ -275,6 +274,9 @@ func (r *Relay) process(request request) {
 		r.Broadcast(request.Event)
 
 	case *reqRequest:
+		budget := cap(request.client.toSend) - len(request.client.toSend)
+		applyBudget(request.Filters, budget)
+
 		events, err := r.OnReq(request.ctx, request.client, request.Filters)
 		if err != nil {
 			if request.ctx.Err() == nil {
@@ -305,6 +307,49 @@ func (r *Relay) process(request request) {
 
 		request.client.send(countResponse{ID: request.ID(), Count: count, Approx: approx})
 		request.client.closeSubscription(request.ID())
+	}
+}
+
+// applyBudget overwrites in-place the limits of the filters to ensure
+// their sum does not exceed the specified maximum or budget.
+func applyBudget(filters nostr.Filters, budget int) {
+	var used int
+	for i := range filters {
+		if filters[i].LimitZero {
+			filters[i].Limit = 0 // ensure consistency
+		}
+
+		if !filters[i].LimitZero && filters[i].Limit < 1 {
+			filters[i].Limit = budget // limit is unspecified (or negative), so we set it equal to the budget
+		}
+
+		used += filters[i].Limit
+	}
+
+	if used > budget {
+		// modify filters based on whether they have a limit lower or higher than budget / len(filters).
+		// 	- lowers: do nothing
+		//	- highers: linearly scale their limit
+
+		fair := budget / len(filters)
+		var sumHighers, sumLowers int
+		var highers []int
+
+		for i := range filters {
+			limit := filters[i].Limit
+			if limit <= fair {
+				sumLowers += limit
+			} else {
+				highers = append(highers, i)
+				sumHighers += limit
+			}
+		}
+
+		scalingFactor := float64(budget-sumLowers) / float64(sumHighers)
+		for _, idx := range highers {
+			limit := float64(filters[idx].Limit)
+			filters[idx].Limit = int(scalingFactor*limit + 0.5)
+		}
 	}
 }
 
@@ -339,7 +384,12 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	client := &client{ip: IP(req), relay: r, conn: conn, toSend: make(chan response, 100)}
+	client := &client{
+		ip:     IP(req),
+		relay:  r,
+		conn:   conn,
+		toSend: make(chan response, r.responseLimit),
+	}
 
 	select {
 	case r.register <- client:
@@ -348,7 +398,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 
 	default:
 		r.lastRegistrationFail.Store(time.Now().Unix())
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "server is overloaded"))
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, ErrOverloaded.Error()))
 		conn.Close()
 
 		if r.logOverload {

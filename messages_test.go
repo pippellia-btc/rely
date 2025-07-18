@@ -12,6 +12,71 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+func TestApplyBudget(t *testing.T) {
+	tests := []struct {
+		name     string
+		budget   int
+		filters  nostr.Filters
+		expected nostr.Filters
+	}{
+		{
+			name:   "empty filters",
+			budget: 100,
+		},
+		{
+			name:     "one filter, overlimit",
+			budget:   100,
+			filters:  nostr.Filters{{Limit: 1000}},
+			expected: nostr.Filters{{Limit: 100}},
+		},
+		{
+			name:     "one filter, unspecified",
+			budget:   100,
+			filters:  nostr.Filters{{}},
+			expected: nostr.Filters{{Limit: 100}},
+		},
+		{
+			name:     "overlimit, all specified",
+			budget:   100,
+			filters:  nostr.Filters{{Limit: 1}, {Limit: 500}, {Limit: 99}},
+			expected: nostr.Filters{{Limit: 1}, {Limit: 83}, {Limit: 16}},
+		},
+		{
+			name:     "negative limit",
+			budget:   100,
+			filters:  nostr.Filters{{Limit: -1}, {Limit: 400}},
+			expected: nostr.Filters{{Limit: 20}, {Limit: 80}},
+		},
+		{
+			name:     "all underlimit",
+			budget:   100,
+			filters:  nostr.Filters{{Limit: 1}, {Limit: 1}},
+			expected: nostr.Filters{{Limit: 1}, {Limit: 1}},
+		},
+		{
+			name:     "all unspecified",
+			budget:   100,
+			filters:  nostr.Filters{{}, {}, {}},
+			expected: nostr.Filters{{Limit: 33}, {Limit: 33}, {Limit: 33}},
+		},
+		{
+			name:     "overlimit, all specified",
+			budget:   100,
+			filters:  nostr.Filters{{Limit: 500}, {Limit: 100}, {Limit: 0}},
+			expected: nostr.Filters{{Limit: 71}, {Limit: 14}, {Limit: 14}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			applyBudget(test.filters, test.budget)
+			if !reflect.DeepEqual(test.filters, test.expected) {
+				t.Fatalf("expected filters %v, got %v", test.expected, test.filters)
+			}
+		})
+	}
+}
+
 func TestParseJSON(t *testing.T) {
 	tests := []struct {
 		name string
@@ -135,7 +200,7 @@ func TestParseReq(t *testing.T) {
 		},
 		{
 			name:     "valid",
-			data:     []byte(`["REQ", "abcd", {"kinds": [1]}, {"kinds": [30023 ], "#d": ["buteko",    "batuke"]}]`),
+			data:     []byte(`["REQ", "abcd", {"kinds": [1]}, {"kinds": [30023], "#d": ["buteko", "batuke"]}]`),
 			expected: &reqRequest{subID: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
 		},
 	}
@@ -188,7 +253,7 @@ func TestParseCount(t *testing.T) {
 		},
 		{
 			name:     "valid",
-			data:     []byte(`["COUNT", "abcd", {"kinds": [1]}, {"kinds": [30023 ], "#d": ["buteko", "batuke"]}]`),
+			data:     []byte(`["COUNT", "abcd", {"kinds": [1]}, {"kinds": [30023], "#d": ["buteko", "batuke"]}]`),
 			expected: &countRequest{subID: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
 		},
 	}
