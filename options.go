@@ -27,7 +27,6 @@ type systemOptions struct {
 	maxProcessors int
 
 	// the maximum number of responses sent to a client at once.
-	//
 	// To specify it, use [WithClientResponseLimit].
 	//
 	// For each REQ, the framework dynamically adjusts the combined budget across all filters

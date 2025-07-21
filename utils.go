@@ -68,9 +68,14 @@ func IP(r *http.Request) string {
 	return host
 }
 
-// ApplyBudget overwrites in-place the limits of the filter(s) to ensure
-// their sum does not exceed the specified maximum or budget.
+// ApplyBudget adjusts the Limit of each filter in-place so that the total does not exceed the given budget.
+// Filters with limits <= budget / len(filters) are preserved, while larger ones are scaled down proportionally.
+// It panics if budget is negative.
 func ApplyBudget(budget int, filters ...nostr.Filter) {
+	if budget < 0 {
+		panic("rely.ApplyBudget: budget should be non negative")
+	}
+
 	var used int
 	for i := range filters {
 		if filters[i].LimitZero {
@@ -95,11 +100,11 @@ func ApplyBudget(budget int, filters ...nostr.Filter) {
 
 		for i := range filters {
 			limit := filters[i].Limit
-			if limit <= fair {
-				budget -= limit
-			} else {
+			if limit > fair {
 				highers = append(highers, i)
 				sumHighers += limit
+			} else {
+				budget -= limit
 			}
 		}
 

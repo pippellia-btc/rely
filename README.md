@@ -56,6 +56,21 @@ func RejectSatan(client Client, event *nostr.Event) error {
 }
 ```
 
+## Secure by Design
+
+To prevent resource abuse, each client is assigned a fixed-size queue for outgoing messages.  
+Before processing each `REQ`, the relay calculates the remaining free space and uses that number as a hard cap for the filters' limits. If the total request exceeds the budget, the larger filters are scaled down proportionally.  
+This prevents waste of CPU and bandwidth on events that the client will not see, and penalizes clients that request more than they consume.
+
+To configure the client’s queue capacity—and thus the maximum number of messages that can be sent at once—use:
+
+```golang
+relay := NewRelay(
+    WithClientResponseLimit(100) // set max queue size to 100 messages per client
+)
+```
+
+
 ## Why another framework
 I started this new framework inspired by [khatru](https://github.com/fiatjaf/khatru) but also frustrated by it.
 Despite its initial simplicity, achieving deep customization means dealing with (and understanding) the khatru relay structure.
@@ -93,7 +108,6 @@ func TooMany(client rely.Client, filters nostr.Filters) error {
         client.Disconnect()
         return errors.New("rate-limited: too many open filters")
     }
-
     return nil
 }
 ```

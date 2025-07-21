@@ -24,6 +24,12 @@ func TestApplyBudget(t *testing.T) {
 			budget: 100,
 		},
 		{
+			name:     "budget 0",
+			budget:   0,
+			filters:  nostr.Filters{{Limit: 69}, {Limit: 420}},
+			expected: nostr.Filters{{Limit: 0}, {Limit: 0}},
+		},
+		{
 			name:     "one filter, overlimit",
 			budget:   100,
 			filters:  nostr.Filters{{Limit: 1000}},
