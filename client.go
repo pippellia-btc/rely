@@ -48,7 +48,7 @@ type Subscription struct {
 }
 
 // client is a middleman between the websocket connection and the [Relay].
-// It's responsible for reading and validating the requests, and for writing the [response]s
+// It's responsible for parsing and validating the requests, and for writing the [response]s
 // to all matching [Subscription]s.
 type client struct {
 	mu   sync.RWMutex
@@ -119,10 +119,7 @@ func (c *client) closeSubscription(ID string) {
 
 	for i := range c.subs {
 		if c.subs[i].ID == ID {
-			// cancels the context of the associated REQ/COUNT
 			c.subs[i].cancel()
-
-			// remove subscription
 			last := len(c.subs) - 1
 			c.subs[i], c.subs[last] = c.subs[last], Subscription{}
 			c.subs = c.subs[:last]
@@ -144,11 +141,10 @@ func (c *client) openSubscription(sub Subscription) {
 
 	switch pos {
 	case -1:
-		// the subscription has an ID that was never seen, so we add a new subscription
 		c.subs = append(c.subs, sub)
 
 	default:
-		// the subscription is overwriting an existing subscription, so we cancel and remove the old for the new
+		// overwriting an existing subscription, so we cancel and remove the old for the new
 		c.subs[pos].cancel()
 		c.subs[pos] = sub
 	}
