@@ -182,7 +182,7 @@ func (c *client) rejectEvent(e *eventRequest) *requestError {
 func (c *client) rejectReq(req *reqRequest) *requestError {
 	for _, reject := range c.relay.RejectReq {
 		if err := reject(c, req.Filters); err != nil {
-			return &requestError{ID: req.subID, Err: err}
+			return &requestError{ID: req.id, Err: err}
 		}
 	}
 	return nil
@@ -193,12 +193,12 @@ func (c *client) rejectReq(req *reqRequest) *requestError {
 func (c *client) rejectCount(count *countRequest) *requestError {
 	if c.relay.OnCount == nil {
 		// nip-45 is optional
-		return &requestError{ID: count.subID, Err: ErrUnsupportedNIP45}
+		return &requestError{ID: count.id, Err: ErrUnsupportedNIP45}
 	}
 
 	for _, reject := range c.relay.RejectCount {
 		if err := reject(c, count.Filters); err != nil {
-			return &requestError{ID: count.subID, Err: err}
+			return &requestError{ID: count.id, Err: err}
 		}
 	}
 	return nil

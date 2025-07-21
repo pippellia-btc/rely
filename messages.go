@@ -47,43 +47,43 @@ func (e *eventRequest) ID() string      { return e.Event.ID }
 func (e *eventRequest) IsExpired() bool { return e.client.isUnregistering.Load() }
 
 type reqRequest struct {
-	subID string
-	ctx   context.Context // will be cancelled when the subscription is closed
+	id  string
+	ctx context.Context // will be cancelled when the subscription is closed
 
 	client  *client
 	Filters nostr.Filters
 }
 
-func (r *reqRequest) ID() string      { return r.subID }
+func (r *reqRequest) ID() string      { return r.id }
 func (r *reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
 
 // Subscription creates the subscription associated with the [reqRequest].
 func (r *reqRequest) Subscription() Subscription {
-	sub := Subscription{typ: "REQ", ID: r.subID, Filters: r.Filters}
+	sub := Subscription{typ: "REQ", ID: r.id, Filters: r.Filters}
 	r.ctx, sub.cancel = context.WithCancel(context.Background())
 	return sub
 }
 
 type countRequest struct {
-	subID string
-	ctx   context.Context // will be cancelled when the subscription is closed
+	id  string
+	ctx context.Context // will be cancelled when the subscription is closed
 
 	client  *client
 	Filters nostr.Filters
 }
 
-func (c *countRequest) ID() string      { return c.subID }
+func (c *countRequest) ID() string      { return c.id }
 func (c *countRequest) IsExpired() bool { return c.ctx.Err() != nil || c.client.isUnregistering.Load() }
 
 // Subscription creates the subscription associated with the [countRequest].
 func (c *countRequest) Subscription() Subscription {
-	sub := Subscription{typ: "COUNT", ID: c.subID, Filters: c.Filters}
+	sub := Subscription{typ: "COUNT", ID: c.id, Filters: c.Filters}
 	c.ctx, sub.cancel = context.WithCancel(context.Background())
 	return sub
 }
 
 type closeRequest struct {
-	subID string // the subscription ID
+	subID string
 }
 
 type authRequest struct {
@@ -182,7 +182,7 @@ func parseReq(array []json.RawMessage) (*reqRequest, *requestError) {
 		return nil, &requestError{ID: ID, Err: err2}
 	}
 
-	return &reqRequest{subID: ID, Filters: filters}, nil
+	return &reqRequest{id: ID, Filters: filters}, nil
 }
 
 // parseCount parses the json array into an [countRequest], validating the subscription ID.
@@ -201,7 +201,7 @@ func parseCount(array []json.RawMessage) (*countRequest, *requestError) {
 		return nil, &requestError{ID: ID, Err: err2}
 	}
 
-	return &countRequest{subID: ID, Filters: filters}, nil
+	return &countRequest{id: ID, Filters: filters}, nil
 }
 
 // parseClose parses the json array into an [closeRequest], validating the subscription ID.

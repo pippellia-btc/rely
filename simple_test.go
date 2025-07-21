@@ -201,7 +201,7 @@ func TestParseReq(t *testing.T) {
 		{
 			name:     "valid",
 			data:     []byte(`["REQ", "abcd", {"kinds": [1]}, {"kinds": [30023], "#d": ["buteko", "batuke"]}]`),
-			expected: &reqRequest{subID: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
+			expected: &reqRequest{id: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
 		},
 	}
 
@@ -254,7 +254,7 @@ func TestParseCount(t *testing.T) {
 		{
 			name:     "valid",
 			data:     []byte(`["COUNT", "abcd", {"kinds": [1]}, {"kinds": [30023], "#d": ["buteko", "batuke"]}]`),
-			expected: &countRequest{subID: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
+			expected: &countRequest{id: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
 		},
 	}
 
