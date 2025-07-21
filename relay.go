@@ -231,6 +231,7 @@ func (r *Relay) close() {
 
 	for client := range r.clients {
 		for i := range client.subs {
+			client.subs[i].cancel()
 			client.send(closedResponse{ID: client.subs[i].ID, Reason: "shutting down the relay"})
 		}
 	}
@@ -280,7 +281,7 @@ func (r *Relay) process(request request) {
 		events, err := r.OnReq(request.ctx, request.client, request.Filters)
 		if err != nil {
 			if request.ctx.Err() == nil {
-				// the error was NOT caused by the user cancelling the REQ, so we send a CLOSED
+				// error not caused by the user's CLOSE
 				request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
 			}
 
@@ -297,7 +298,7 @@ func (r *Relay) process(request request) {
 		count, approx, err := r.OnCount(request.ctx, request.client, request.Filters)
 		if err != nil {
 			if request.ctx.Err() == nil {
-				// the error was NOT caused by the user cancelling the COUNT, so we send a CLOSED
+				// error not caused by the user's CLOSE
 				request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
 			}
 
