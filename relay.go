@@ -275,7 +275,7 @@ func (r *Relay) process(request request) {
 
 	case *reqRequest:
 		budget := cap(request.client.toSend) - len(request.client.toSend)
-		applyBudget(request.Filters, budget)
+		ApplyBudget(budget, request.Filters...)
 
 		events, err := r.OnReq(request.ctx, request.client, request.Filters)
 		if err != nil {
@@ -307,49 +307,6 @@ func (r *Relay) process(request request) {
 
 		request.client.send(countResponse{ID: request.ID(), Count: count, Approx: approx})
 		request.client.closeSubscription(request.ID())
-	}
-}
-
-// applyBudget overwrites in-place the limits of the filters to ensure
-// their sum does not exceed the specified maximum or budget.
-func applyBudget(filters nostr.Filters, budget int) {
-	var used int
-	for i := range filters {
-		if filters[i].LimitZero {
-			filters[i].Limit = 0 // ensure consistency
-		}
-
-		if !filters[i].LimitZero && filters[i].Limit < 1 {
-			filters[i].Limit = budget // limit is unspecified (or negative), so we set it equal to the budget
-		}
-
-		used += filters[i].Limit
-	}
-
-	if used > budget {
-		// modify filters based on whether they have a limit lower or higher than budget / len(filters).
-		// 	- lowers: do nothing
-		//	- highers: linearly scale their limit
-
-		fair := budget / len(filters)
-		var sumHighers, sumLowers int
-		var highers []int
-
-		for i := range filters {
-			limit := filters[i].Limit
-			if limit <= fair {
-				sumLowers += limit
-			} else {
-				highers = append(highers, i)
-				sumHighers += limit
-			}
-		}
-
-		scalingFactor := float64(budget-sumLowers) / float64(sumHighers)
-		for _, idx := range highers {
-			limit := float64(filters[idx].Limit)
-			filters[idx].Limit = int(scalingFactor*limit + 0.5)
-		}
 	}
 }
 

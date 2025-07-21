@@ -69,7 +69,7 @@ func TestApplyBudget(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			applyBudget(test.filters, test.budget)
+			ApplyBudget(test.budget, test.filters...)
 			if !reflect.DeepEqual(test.filters, test.expected) {
 				t.Fatalf("expected filters %v, got %v", test.expected, test.filters)
 			}

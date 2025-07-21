@@ -68,6 +68,49 @@ func IP(r *http.Request) string {
 	return host
 }
 
+// ApplyBudget overwrites in-place the limits of the filter(s) to ensure
+// their sum does not exceed the specified maximum or budget.
+func ApplyBudget(budget int, filters ...nostr.Filter) {
+	var used int
+	for i := range filters {
+		if filters[i].LimitZero {
+			filters[i].Limit = 0 // ensure consistency
+		}
+
+		if !filters[i].LimitZero && filters[i].Limit < 1 {
+			filters[i].Limit = budget // limit is unspecified (or negative), so we set it equal to the budget
+		}
+
+		used += filters[i].Limit
+	}
+
+	if used > budget {
+		// modify filters based on whether they have a limit lower or higher than budget / len(filters).
+		// 	- lowers: do nothing
+		//	- highers: linearly scale their limit
+
+		fair := budget / len(filters)
+		var sumHighers int
+		var highers []int
+
+		for i := range filters {
+			limit := filters[i].Limit
+			if limit <= fair {
+				budget -= limit
+			} else {
+				highers = append(highers, i)
+				sumHighers += limit
+			}
+		}
+
+		scalingFactor := float64(budget) / float64(sumHighers)
+		for _, idx := range highers {
+			limit := float64(filters[idx].Limit)
+			filters[idx].Limit = int(scalingFactor*limit + 0.5)
+		}
+	}
+}
+
 // Display important statistics of the relay while it's running.
 // Example usage: go rely.DisplayStats(ctx, relay)
 func DisplayStats(ctx context.Context, r *Relay) {
