@@ -201,7 +201,7 @@ func (r *Relay) coordinator(ctx context.Context) {
 
 		case client := <-r.unregister:
 			delete(r.clients, client)
-			close(client.toSend)
+			close(client.responses)
 
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
@@ -209,7 +209,7 @@ func (r *Relay) coordinator(ctx context.Context) {
 			for range n {
 				client = <-r.unregister
 				delete(r.clients, client)
-				close(client.toSend)
+				close(client.responses)
 			}
 
 			r.clientsCount.Add(-1 - n)
@@ -275,7 +275,7 @@ func (r *Relay) process(request request) {
 		r.Broadcast(request.Event)
 
 	case *reqRequest:
-		budget := cap(request.client.toSend) - len(request.client.toSend)
+		budget := cap(request.client.responses) - len(request.client.responses)
 		ApplyBudget(budget, request.Filters...)
 
 		events, err := r.OnReq(request.ctx, request.client, request.Filters)
@@ -343,10 +343,10 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	client := &client{
-		ip:     IP(req),
-		relay:  r,
-		conn:   conn,
-		toSend: make(chan response, r.responseLimit),
+		ip:        IP(req),
+		relay:     r,
+		conn:      conn,
+		responses: make(chan response, r.responseLimit),
 	}
 
 	select {

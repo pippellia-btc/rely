@@ -59,9 +59,9 @@ type client struct {
 	pubkey    string
 	challenge string
 
-	relay  *Relay
-	conn   *websocket.Conn
-	toSend chan response
+	relay     *Relay
+	conn      *websocket.Conn
+	responses chan response
 
 	isUnregistering atomic.Bool
 }
@@ -361,7 +361,7 @@ func (c *client) write() {
 
 	for {
 		select {
-		case response, ok := <-c.toSend:
+		case response, ok := <-c.responses:
 			c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
 
 			if !ok {
@@ -395,7 +395,7 @@ func (c *client) send(r response) {
 	}
 
 	select {
-	case c.toSend <- r:
+	case c.responses <- r:
 	default:
 		if c.relay.logOverload {
 			log.Printf("failed to send the client with IP %s the response %v: channel is full", c.ip, r)
