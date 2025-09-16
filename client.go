@@ -26,10 +26,6 @@ type Client interface {
 	// IP address of the client
 	IP() string
 
-	// RemainingCapacity returns a snapshot of the number of available response slots
-	// in the client's buffer.
-	RemainingCapacity() int
-
 	// Pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
 	// To initiate the authentication, call [Client.SendAuthChallenge]
 	Pubkey() string
@@ -41,6 +37,11 @@ type Client interface {
 
 	// Disconnect the client, closing its websocket connection
 	Disconnect()
+
+	// RemainingCapacity returns a snapshot of how many slots are currently
+	// available in the client's response buffer. Useful for implementing
+	// backpressure or flow-control strategies.
+	RemainingCapacity() int
 }
 
 type Subscription struct {
@@ -68,6 +69,8 @@ type client struct {
 	responses chan response
 
 	isUnregistering atomic.Bool
+	lastLog         atomic.Int64
+	dropCount       atomic.Int64
 }
 
 func (c *client) IP() string             { return c.ip }
@@ -403,7 +406,18 @@ func (c *client) send(r response) {
 	case c.responses <- r:
 	default:
 		if c.relay.logOverload {
-			log.Printf("failed to send the client with IP %s the response %v: channel is full", c.ip, r)
+			c.logOverload()
 		}
+	}
+}
+
+func (c *client) logOverload() {
+	dropped := c.dropCount.Add(1)
+	lastLog := time.Unix(c.lastLog.Load(), 0)
+
+	if time.Since(lastLog) > time.Second {
+		log.Printf("client with IP %s dropped %d responses in the last second", c.ip, dropped)
+		c.lastLog.Store(time.Now().Unix())
+		c.dropCount.Store(0)
 	}
 }
