@@ -26,6 +26,10 @@ type Client interface {
 	// IP address of the client
 	IP() string
 
+	// RemainingCapacity returns a snapshot of the number of available response slots
+	// in the client's buffer.
+	RemainingCapacity() int
+
 	// Pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
 	// To initiate the authentication, call [Client.SendAuthChallenge]
 	Pubkey() string
@@ -66,7 +70,8 @@ type client struct {
 	isUnregistering atomic.Bool
 }
 
-func (c *client) IP() string { return c.ip }
+func (c *client) IP() string             { return c.ip }
+func (c *client) RemainingCapacity() int { return cap(c.responses) - len(c.responses) }
 
 func (c *client) Subscriptions() []Subscription {
 	c.mu.RLock()

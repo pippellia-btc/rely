@@ -275,7 +275,7 @@ func (r *Relay) process(request request) {
 		r.Broadcast(request.Event)
 
 	case *reqRequest:
-		budget := cap(request.client.responses) - len(request.client.responses)
+		budget := request.client.RemainingCapacity()
 		ApplyBudget(budget, request.Filters...)
 
 		events, err := r.OnReq(request.ctx, request.client, request.Filters)
