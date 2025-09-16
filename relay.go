@@ -360,7 +360,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		conn.Close()
 
 		if r.logOverload {
-			log.Printf("failed to register client with IP %s: channel is full", client.ip)
+			log.Printf("failed to register client %s: channel is full", client.ip)
 		}
 	}
 }

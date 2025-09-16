@@ -416,7 +416,7 @@ func (c *client) logOverload() {
 	lastLog := time.Unix(c.lastLog.Load(), 0)
 
 	if time.Since(lastLog) > time.Second {
-		log.Printf("client with IP %s dropped %d responses in the last second", c.ip, dropped)
+		log.Printf("failed to send %d responses to client %s in the last second: channel is full", dropped, c.ip)
 		c.lastLog.Store(time.Now().Unix())
 		c.dropCount.Store(0)
 	}
