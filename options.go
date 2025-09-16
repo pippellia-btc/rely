@@ -38,7 +38,7 @@ type systemOptions struct {
 	// and sent to the client, enforcing per-client backpressure and preventing overproduction of responses.
 	responseLimit int
 
-	// logOverload non-fatal internal conditions such as dropped events or failed client
+	// log non-fatal internal conditions such as dropped events or failed client
 	// registrations due to full channels. Set it to true with [WithOverloadLogs].
 	logOverload bool
 

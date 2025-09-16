@@ -73,7 +73,7 @@ func IP(r *http.Request) string {
 // It panics if budget is negative.
 func ApplyBudget(budget int, filters ...nostr.Filter) {
 	if budget < 0 {
-		panic("rely.ApplyBudget: budget should be non negative")
+		panic("rely.ApplyBudget: budget should not be negative")
 	}
 
 	var used int
@@ -116,7 +116,7 @@ func ApplyBudget(budget int, filters ...nostr.Filter) {
 	}
 }
 
-// Display important statistics of the relay while it's running.
+// Display important statistics of the relay while it's running on standard output.
 // Example usage: go rely.DisplayStats(ctx, relay)
 func DisplayStats(ctx context.Context, r *Relay) {
 	const statsLines = 9
