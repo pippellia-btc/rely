@@ -12,9 +12,7 @@ Getting started is easy, and deep customization is just as straightforward.
 
 ```golang
 relay := NewRelay()
-if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
-	panic(err)
-}
+relay.StartAndServe(ctx, "localhost:3334")
 ```
 
 ### Structural Customization
