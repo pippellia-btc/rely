@@ -44,7 +44,8 @@ type Relay struct {
 //
 //     These define the actions to perform after accepting various client inputs.
 //     They allow you to hook into and customize how the relay handles connections,
-//     EVENTs, REQs, and COUNTs.
+//     EVENTs, REQs, and COUNTs. If the function returns an error, the appropriate
+//     message is sent to the client (e.g. OK, CLOSE).
 //
 // All functions must be thread-safe and must not be modified at runtime.
 type RelayFunctions struct {
@@ -53,17 +54,20 @@ type RelayFunctions struct {
 	RejectReq        []func(Client, nostr.Filters) error
 	RejectCount      []func(Client, nostr.Filters) error
 
-	OnConnect func(Client) error
-	OnEvent   func(Client, *nostr.Event) error
-	OnReq     func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
-	OnCount   func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
+	OnConnect    func(Client)
+	OnDisconnect func(Client)
+
+	OnEvent func(Client, *nostr.Event) error
+	OnReq   func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
+	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
 func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
 		RejectConnection: []func(Stats, *http.Request) error{RegistrationFailWithin(time.Second)},
 		RejectEvent:      []func(Client, *nostr.Event) error{InvalidID, InvalidSignature},
-		OnConnect:        func(Client) error { return nil },
+		OnConnect:        func(Client) {},
+		OnDisconnect:     func(Client) {},
 		OnEvent:          logEvent,
 		OnReq:            logFilters,
 	}
@@ -101,9 +105,9 @@ func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegist
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		clients:    make(map[*client]struct{}, 100),
-		register:   make(chan *client, 100),
-		unregister: make(chan *client, 100),
+		clients:    make(map[*client]struct{}, 1000),
+		register:   make(chan *client, 1000),
+		unregister: make(chan *client, 1000),
 		broadcast:  make(chan *nostr.Event, 1000),
 		queue:      make(chan request, 1000),
 
@@ -194,14 +198,12 @@ func (r *Relay) coordinator(ctx context.Context) {
 		case client := <-r.register:
 			r.clients[client] = struct{}{}
 			r.clientsCount.Add(1)
-
-			if err := r.OnConnect(client); err != nil {
-				client.send(noticeResponse{Message: err.Error()})
-			}
+			r.OnConnect(client)
 
 		case client := <-r.unregister:
 			delete(r.clients, client)
 			close(client.responses)
+			r.OnDisconnect(client)
 
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
@@ -210,6 +212,7 @@ func (r *Relay) coordinator(ctx context.Context) {
 				client = <-r.unregister
 				delete(r.clients, client)
 				close(client.responses)
+				r.OnDisconnect(client)
 			}
 
 			r.clientsCount.Add(-1 - n)

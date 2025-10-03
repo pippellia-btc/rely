@@ -69,15 +69,14 @@ func TestRandom(t *testing.T) {
 	})
 }
 
-func dummyOnConnect(c rely.Client) error {
+func dummyOnConnect(c rely.Client) {
 	clients.Add(1)
 	if rg.Float32() < relayFailProbability {
 		c.Disconnect()
-		return nil
+		return
 	}
 
 	fibonacci(25) // simulate some work
-	return nil
 }
 
 func dummyOnEvent(c rely.Client, e *nostr.Event) error {

@@ -53,7 +53,6 @@ func BadIP(s rely.Stats, req *http.Request) error {
 	return nil
 }
 
-func PrintIP(c rely.Client) error {
+func PrintIP(c rely.Client) {
 	log.Printf("registered client with IP %s", c.IP())
-	return nil
 }
