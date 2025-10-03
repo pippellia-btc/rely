@@ -30,6 +30,9 @@ type Client interface {
 	// To initiate the authentication, call [Client.SendAuthChallenge]
 	Pubkey() string
 
+	// SendNotice to the client, useful for greeting, warnings and other informational messages.
+	SendNotice(string)
+
 	// SendAuthChallenge sends the client a newly generated AUTH challenge.
 	// This resets the authentication state: any previously authenticated pubkey is cleared,
 	// and a new challenge is generated and sent
@@ -99,6 +102,10 @@ func (c *client) Pubkey() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.pubkey
+}
+
+func (c *client) SendNotice(message string) {
+	c.send(noticeResponse{Message: message})
 }
 
 func (c *client) SendAuthChallenge() {
