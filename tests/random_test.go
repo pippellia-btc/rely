@@ -48,6 +48,7 @@ func TestRandom(t *testing.T) {
 		relay := NewRelay(
 			WithQueueCapacity(10000),
 			WithMaxProcessors(10),
+			WithoutPressureLogs(),
 		)
 
 		relay.OnConnect = dummyOnConnect

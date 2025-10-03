@@ -73,7 +73,7 @@ func newRelayFunctions() RelayFunctions {
 
 		OnConnect:      func(Client) {},
 		OnDisconnect:   func(Client) {},
-		OnGreedyClient: DisconnectOnDrops(300),
+		OnGreedyClient: DisconnectOnDrops(200),
 
 		OnEvent: logEvent,
 		OnReq:   logFilters,
@@ -139,7 +139,7 @@ func (r *Relay) enqueue(req request) *requestError {
 	case r.queue <- req:
 		return nil
 	default:
-		if r.logOverload {
+		if r.logPressure {
 			log.Printf("failed to enqueue request with ID %s: %v", req.ID(), ErrOverloaded)
 		}
 		return &requestError{ID: req.ID(), Err: ErrOverloaded}
@@ -152,7 +152,7 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 	case r.broadcast <- e:
 		return nil
 	default:
-		if r.logOverload {
+		if r.logPressure {
 			log.Printf("failed to broadcast event with ID %s: %v", e.ID, ErrOverloaded)
 		}
 		return ErrOverloaded
@@ -369,7 +369,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, ErrOverloaded.Error()))
 		conn.Close()
 
-		if r.logOverload {
+		if r.logPressure {
 			log.Printf("failed to register client %s: channel is full", client.ip)
 		}
 	}

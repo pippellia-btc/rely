@@ -38,9 +38,10 @@ type systemOptions struct {
 	// and sent to the client, enforcing per-client backpressure and preventing overproduction of responses.
 	responseLimit int
 
-	// log non-fatal internal conditions such as dropped events or failed client
-	// registrations due to full channels. Set it to true with [WithOverloadLogs].
-	logOverload bool
+	// log non-fatal internal conditions caused by clients pressure,
+	// such as dropped events or failed client registrations due to full channels.
+	// Default is true, set it to false with [WithoutPressureLogs].
+	logPressure bool
 
 	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
 	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
@@ -54,6 +55,7 @@ func newSystemOptions() systemOptions {
 	return systemOptions{
 		maxProcessors: 4,
 		responseLimit: 1000,
+		logPressure:   true,
 		info:          newRelayInfo(),
 	}
 }
@@ -74,7 +76,7 @@ func newRelayInfo() []byte {
 func WithMaxProcessors(n int) Option       { return func(r *Relay) { r.maxProcessors = n } }
 func WithClientResponseLimit(n int) Option { return func(r *Relay) { r.responseLimit = n } }
 func WithDomain(d string) Option           { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
-func WithOverloadLogs() Option             { return func(r *Relay) { r.logOverload = true } }
+func WithoutPressureLogs() Option          { return func(r *Relay) { r.logPressure = false } }
 func WithQueueCapacity(c int) Option       { return func(r *Relay) { r.queue = make(chan request, c) } }
 
 func WithInfo(info nip11.RelayInformationDocument) Option {
