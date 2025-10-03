@@ -32,7 +32,7 @@ type systemOptions struct {
 	// For each REQ, the framework dynamically adjusts the combined budget across all filters
 	// to match the remaining capacity of the client's response channel:
 	//
-	//     responseLimit - len(client.toSend)
+	//     responseLimit - len(client.responses)
 	//
 	// This ensures that the total number of events returned never exceeds what can be buffered
 	// and sent to the client, enforcing per-client backpressure and preventing overproduction of responses.
