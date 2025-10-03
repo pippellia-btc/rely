@@ -57,6 +57,10 @@ type RelayFunctions struct {
 	OnConnect    func(Client)
 	OnDisconnect func(Client)
 
+	// OnGreedyClient is called when the client’s response buffer is full,
+	// which happens if the client sends new REQs before reading all responses from previous ones.
+	OnGreedyClient func(Client)
+
 	OnEvent func(Client, *nostr.Event) error
 	OnReq   func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
 	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
@@ -66,10 +70,13 @@ func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
 		RejectConnection: []func(Stats, *http.Request) error{RegistrationFailWithin(time.Second)},
 		RejectEvent:      []func(Client, *nostr.Event) error{InvalidID, InvalidSignature},
-		OnConnect:        func(Client) {},
-		OnDisconnect:     func(Client) {},
-		OnEvent:          logEvent,
-		OnReq:            logFilters,
+
+		OnConnect:      func(Client) {},
+		OnDisconnect:   func(Client) {},
+		OnGreedyClient: DisconnectOnDrops(300),
+
+		OnEvent: logEvent,
+		OnReq:   logFilters,
 	}
 }
 

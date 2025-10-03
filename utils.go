@@ -49,6 +49,15 @@ func RegistrationFailWithin(d time.Duration) func(Stats, *http.Request) error {
 	}
 }
 
+func DisconnectOnDrops(maxDropped int) func(c Client) {
+	return func(c Client) {
+		if c.DroppedResponses() > maxDropped {
+			c.SendNotice("too many dropped responses, disconnecting")
+			c.Disconnect()
+		}
+	}
+}
+
 // Extracts the IP address from the http request.
 func IP(r *http.Request) string {
 	if IP := r.Header.Get("X-Real-IP"); IP != "" {

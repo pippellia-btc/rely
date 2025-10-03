@@ -41,6 +41,11 @@ type Client interface {
 	// Disconnect the client, closing its websocket connection
 	Disconnect()
 
+	// DroppedResponses returns the total number of responses that were dropped
+	// because the client’s response channel was full. This value is monotonic
+	// and it's useful for implementing backpressure or flow-control strategies.
+	DroppedResponses() int
+
 	// RemainingCapacity returns a snapshot of how many slots are currently
 	// available in the client's response buffer. Useful for implementing
 	// backpressure or flow-control strategies.
@@ -72,11 +77,11 @@ type client struct {
 	responses chan response
 
 	isUnregistering atomic.Bool
-	lastLog         atomic.Int64
-	dropCount       atomic.Int64
+	dropped         atomic.Int64
 }
 
 func (c *client) IP() string             { return c.ip }
+func (c *client) DroppedResponses() int  { return int(c.dropped.Load()) }
 func (c *client) RemainingCapacity() int { return cap(c.responses) - len(c.responses) }
 
 func (c *client) Subscriptions() []Subscription {
@@ -412,19 +417,7 @@ func (c *client) send(r response) {
 	select {
 	case c.responses <- r:
 	default:
-		if c.relay.logOverload {
-			c.logOverload()
-		}
-	}
-}
-
-func (c *client) logOverload() {
-	dropped := c.dropCount.Add(1)
-	lastLog := time.Unix(c.lastLog.Load(), 0)
-
-	if time.Since(lastLog) > time.Second {
-		log.Printf("failed to send %d responses to client %s in the last second: channel is full", dropped, c.ip)
-		c.lastLog.Store(time.Now().Unix())
-		c.dropCount.Store(0)
+		c.dropped.Add(1)
+		c.relay.OnGreedyClient(c)
 	}
 }
