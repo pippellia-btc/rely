@@ -259,6 +259,7 @@ func (c *client) read() {
 		c.conn.Close()
 	}()
 
+	invalidMessages := 0
 	c.conn.SetReadLimit(c.relay.maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait))
 	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait)); return nil })
@@ -274,6 +275,12 @@ func (c *client) read() {
 
 		label, json, err := parseJSON(data)
 		if err != nil {
+			invalidMessages++
+			if invalidMessages > 2 {
+				// disconnect abruptly
+				return
+			}
+
 			c.send(noticeResponse{Message: fmt.Sprintf("%v: %v", ErrGeneric, err)})
 			continue
 		}
