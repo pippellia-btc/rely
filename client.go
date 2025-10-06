@@ -20,25 +20,25 @@ const authChallengeBytes = 16
 
 // The Client where the request comes from. All methods are safe for concurrent use.
 type Client interface {
-	// Subscriptions returns the currently active "REQ" subscriptions of the client
+	// Subscriptions returns the currently active "REQ" subscriptions of the client.
 	Subscriptions() []Subscription
 
-	// IP address of the client
+	// IP address of the client.
 	IP() string
 
 	// Pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
-	// To initiate the authentication, call [Client.SendAuthChallenge]
+	// To initiate the authentication, call [Client.SendAuth].
 	Pubkey() string
 
 	// SendNotice to the client, useful for greeting, warnings and other informational messages.
 	SendNotice(string)
 
-	// SendAuthChallenge sends the client a newly generated AUTH challenge.
+	// SendAuth sends the client a newly generated AUTH challenge.
 	// This resets the authentication state: any previously authenticated pubkey is cleared,
-	// and a new challenge is generated and sent
-	SendAuthChallenge()
+	// and a new challenge is generated and sent.
+	SendAuth()
 
-	// Disconnect the client, closing its websocket connection
+	// Disconnect the client, closing its websocket connection.
 	Disconnect()
 
 	// DroppedResponses returns the total number of responses that were dropped
@@ -113,7 +113,7 @@ func (c *client) SendNotice(message string) {
 	c.send(noticeResponse{Message: message})
 }
 
-func (c *client) SendAuthChallenge() {
+func (c *client) SendAuth() {
 	challenge := make([]byte, authChallengeBytes)
 	rand.Read(challenge)
 

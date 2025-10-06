@@ -58,12 +58,11 @@ func main() {
 	})
 
 	// send an AUTH challange as soon as the client connects
-	relay.OnConnect = func(c rely.Client) { c.SendAuthChallenge() }
+	relay.OnConnect = func(c rely.Client) { c.SendAuth() }
 
 	relay.OnEvent = func(c rely.Client, e *nostr.Event) error {
 		pubkey := c.Pubkey()
 		if pubkey == "" {
-			c.SendAuthChallenge()
 			return ErrAuthRequired
 		}
 
