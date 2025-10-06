@@ -27,6 +27,8 @@ func main() {
 		WithDomain("example.com"), // the domain must be set to correctly validate NIP-42
 	)
 
+	relay.OnConnect = func(c Client) { c.SendAuthChallenge() }
+	relay.OnAuth = func(c Client) { log.Printf("client authed with pubkey %s", c.Pubkey()) }
 	relay.RejectReq = append(relay.RejectReq, AuthedOnDMs)
 
 	addr := "localhost:3334"
@@ -46,7 +48,6 @@ func AuthedOnDMs(client rely.Client, filters nostr.Filters) error {
 		pubkey := client.Pubkey()
 		if pubkey == "" {
 			// the client is not authenticated, so it can't request DMs
-			client.SendAuthChallenge()
 			return errors.New("auth-required: you must be authenticated to query for DMs")
 		}
 
