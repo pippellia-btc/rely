@@ -37,15 +37,15 @@ type Relay struct {
 //
 //   - Reject functions:
 //
-//     These are used to conditionally reject incoming data. Each slice is evaluated
-//     in order, and if any function returns an error, the input is rejected.
+//     These are used to conditionally reject incoming data, before they are processed.
+//     Each slice is evaluated in order, and if any function returns an error, the input is rejected.
 //
 //   - On functions:
 //
-//     These define the actions to perform after accepting various client inputs.
-//     They allow you to hook into and customize how the relay handles connections,
+//     These define the actions to perform after a certain situation happened.
+//     They allow you to hook into and customize how the relay reacts to connections, auths,
 //     EVENTs, REQs, and COUNTs. If the function returns an error, the appropriate
-//     message is sent to the client (e.g. OK, CLOSE).
+//     message is sent to the client (e.g. onEvent -> OK, onReq -> CLOSE).
 //
 // All functions must be thread-safe and must not be modified at runtime.
 type RelayFunctions struct {
@@ -54,16 +54,17 @@ type RelayFunctions struct {
 	RejectReq        []func(Client, nostr.Filters) error
 	RejectCount      []func(Client, nostr.Filters) error
 
+	OnEvent func(Client, *nostr.Event) error
+	OnReq   func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
+	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
+
 	OnConnect    func(Client)
 	OnDisconnect func(Client)
+	OnAuth       func(Client)
 
 	// OnGreedyClient is called when the client’s response buffer is full,
 	// which happens if the client sends new REQs before reading all responses from previous ones.
 	OnGreedyClient func(Client)
-
-	OnEvent func(Client, *nostr.Event) error
-	OnReq   func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
-	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
 func newRelayFunctions() RelayFunctions {
@@ -73,6 +74,7 @@ func newRelayFunctions() RelayFunctions {
 
 		OnConnect:      func(Client) {},
 		OnDisconnect:   func(Client) {},
+		OnAuth:         func(c Client) {},
 		OnGreedyClient: DisconnectOnDrops(200),
 
 		OnEvent: logEvent,

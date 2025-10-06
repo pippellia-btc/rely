@@ -370,6 +370,7 @@ func (c *client) read() {
 
 			c.setPubkey(auth.PubKey)
 			c.send(okResponse{ID: auth.ID, Saved: true})
+			c.relay.OnAuth(c)
 
 		default:
 			c.send(noticeResponse{Message: ErrUnsupportedType.Error()})
