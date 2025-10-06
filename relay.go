@@ -228,7 +228,7 @@ func (r *Relay) coordinator(ctx context.Context) {
 
 		case event := <-r.broadcast:
 			for client := range r.clients {
-				for _, ID := range client.matchingSubscriptions(event) {
+				for _, ID := range client.subscriptions.Matching(event) {
 					client.send(eventResponse{ID: ID, Event: event})
 				}
 			}
@@ -242,9 +242,10 @@ func (r *Relay) close() {
 	defer log.Println("relay stopped")
 
 	for client := range r.clients {
-		for i := range client.subs {
-			client.subs[i].cancel()
-			client.send(closedResponse{ID: client.subs[i].ID, Reason: "shutting down the relay"})
+		subs := client.subscriptions.List()
+		for i := range subs {
+			subs[i].cancel()
+			client.send(closedResponse{ID: subs[i].ID, Reason: "shutting down the relay"})
 		}
 	}
 }
@@ -275,15 +276,16 @@ func (r *Relay) processor(ctx context.Context) {
 
 // process the request according to its type by using the provided [RelayFunctions].
 func (r *Relay) process(request request) {
+	ID := request.ID()
 	switch request := request.(type) {
 	case *eventRequest:
 		err := r.OnEvent(request.client, request.Event)
 		if err != nil {
-			request.client.send(okResponse{ID: request.ID(), Saved: false, Reason: err.Error()})
+			request.client.send(okResponse{ID: ID, Saved: false, Reason: err.Error()})
 			return
 		}
 
-		request.client.send(okResponse{ID: request.ID(), Saved: true})
+		request.client.send(okResponse{ID: ID, Saved: true})
 		r.Broadcast(request.Event)
 
 	case *reqRequest:
@@ -294,32 +296,32 @@ func (r *Relay) process(request request) {
 		if err != nil {
 			if request.ctx.Err() == nil {
 				// error not caused by the user's CLOSE
-				request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
+				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			request.client.closeSubscription(request.ID())
+			request.client.subscriptions.Remove(ID)
 			return
 		}
 
 		for i := range events {
-			request.client.send(eventResponse{ID: request.ID(), Event: &events[i]})
+			request.client.send(eventResponse{ID: ID, Event: &events[i]})
 		}
-		request.client.send(eoseResponse{ID: request.ID()})
+		request.client.send(eoseResponse{ID: ID})
 
 	case *countRequest:
 		count, approx, err := r.OnCount(request.ctx, request.client, request.Filters)
 		if err != nil {
 			if request.ctx.Err() == nil {
 				// error not caused by the user's CLOSE
-				request.client.send(closedResponse{ID: request.ID(), Reason: err.Error()})
+				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			request.client.closeSubscription(request.ID())
+			request.client.subscriptions.Remove(ID)
 			return
 		}
 
-		request.client.send(countResponse{ID: request.ID(), Count: count, Approx: approx})
-		request.client.closeSubscription(request.ID())
+		request.client.send(countResponse{ID: ID, Count: count, Approx: approx})
+		request.client.subscriptions.Remove(ID)
 	}
 }
 

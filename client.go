@@ -1,12 +1,10 @@
 package rely
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,11 +18,11 @@ const authChallengeBytes = 16
 
 // The Client where the request comes from. All methods are safe for concurrent use.
 type Client interface {
-	// Subscriptions returns the currently active "REQ" subscriptions of the client.
-	Subscriptions() []Subscription
-
 	// IP address of the client.
 	IP() string
+
+	// Subscriptions returns the currently active "REQ" subscriptions of the client.
+	Subscriptions() []Subscription
 
 	// Pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
 	// To initiate the authentication, call [Client.SendAuth].
@@ -52,21 +50,13 @@ type Client interface {
 	RemainingCapacity() int
 }
 
-type Subscription struct {
-	ID      string
-	Filters nostr.Filters
-
-	typ    string             // either "REQ" or "COUNT"
-	cancel context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
-}
-
 // client is a middleman between the websocket connection and the [Relay].
 // It's responsible for parsing and validating the requests, and for writing the [response]s
 // to all matching [Subscription]s.
 type client struct {
-	mu   sync.RWMutex
-	ip   string
-	subs []Subscription
+	mu            sync.RWMutex
+	ip            string
+	subscriptions Subscriptions
 
 	// NIP-42
 	pubkey    string
@@ -80,22 +70,10 @@ type client struct {
 	droppedResponses atomic.Int64
 }
 
-func (c *client) IP() string             { return c.ip }
-func (c *client) DroppedResponses() int  { return int(c.droppedResponses.Load()) }
-func (c *client) RemainingCapacity() int { return cap(c.responses) - len(c.responses) }
-
-func (c *client) Subscriptions() []Subscription {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	subs := make([]Subscription, 0, len(c.subs))
-	for i := range c.subs {
-		if c.subs[i].typ == "REQ" {
-			subs = append(subs, c.subs[i])
-		}
-	}
-	return subs
-}
+func (c *client) IP() string                    { return c.ip }
+func (c *client) Subscriptions() []Subscription { return c.subscriptions.List() }
+func (c *client) DroppedResponses() int         { return int(c.droppedResponses.Load()) }
+func (c *client) RemainingCapacity() int        { return cap(c.responses) - len(c.responses) }
 
 func (c *client) setPubkey(pubkey string) {
 	c.mu.Lock()
@@ -130,58 +108,6 @@ func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		c.relay.unregister <- c
 	}
-}
-
-// closeSubscription closes the subscription with the provided ID, if present.
-func (c *client) closeSubscription(ID string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for i := range c.subs {
-		if c.subs[i].ID == ID {
-			c.subs[i].cancel()
-			last := len(c.subs) - 1
-			c.subs[i], c.subs[last] = c.subs[last], Subscription{}
-			c.subs = c.subs[:last]
-			return
-		}
-	}
-}
-
-// openSubscription registers the provided subscription with the client.
-// If a subscription with the same ID already exists, the existing subscription is canceled
-// and replaced with the new one.
-func (c *client) openSubscription(sub Subscription) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	pos := slices.IndexFunc(c.subs, func(s Subscription) bool {
-		return s.ID == sub.ID
-	})
-
-	switch pos {
-	case -1:
-		c.subs = append(c.subs, sub)
-
-	default:
-		// overwriting an existing subscription, so we cancel and remove the old for the new
-		c.subs[pos].cancel()
-		c.subs[pos] = sub
-	}
-}
-
-// matchingSubscriptions returns the IDs of subscriptions that match the provided event.
-func (c *client) matchingSubscriptions(event *nostr.Event) []string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	var IDs []string
-	for i := range c.subs {
-		if c.subs[i].typ == "REQ" && c.subs[i].Filters.Match(event) {
-			IDs = append(IDs, c.subs[i].ID)
-		}
-	}
-	return IDs
 }
 
 // rejectEvent wraps the relay RejectEvent functions and makes them accessible to the client.
@@ -324,7 +250,7 @@ func (c *client) read() {
 				continue
 			}
 
-			c.openSubscription(sub)
+			c.subscriptions.Add(sub)
 
 		case "COUNT":
 			count, err := parseCount(json)
@@ -346,7 +272,7 @@ func (c *client) read() {
 				continue
 			}
 
-			c.openSubscription(sub)
+			c.subscriptions.Add(sub)
 
 		case "CLOSE":
 			close, err := parseClose(json)
@@ -355,7 +281,7 @@ func (c *client) read() {
 				continue
 			}
 
-			c.closeSubscription(close.subID)
+			c.subscriptions.Remove(close.subID)
 
 		case "AUTH":
 			auth, err := parseAuth(json)
