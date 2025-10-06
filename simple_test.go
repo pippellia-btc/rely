@@ -379,44 +379,68 @@ func TestValidateAuth(t *testing.T) {
 	tests := []struct {
 		name     string
 		auth     *authRequest
-		expected *requestError
+		expected error
 	}{
-		{
-			name:     "auth before challenge has been sent",
-			auth:     &authRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", ""}}}},
-			expected: &requestError{ID: "abc", Err: ErrInvalidAuthChallenge},
-		},
 		{
 			name:     "invalid kind",
 			auth:     &authRequest{Event: &nostr.Event{Kind: 69, ID: "abc", CreatedAt: nostr.Now()}},
-			expected: &requestError{ID: "abc", Err: ErrInvalidAuthKind},
+			expected: ErrInvalidAuthKind,
 		},
 		{
 			name:     "too much into the past",
-			auth:     &authRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now() - nostr.Timestamp(time.Minute+1)}},
-			expected: &requestError{ID: "abc", Err: ErrInvalidTimestamp},
+			auth:     &authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now() - nostr.Timestamp(time.Minute+1)})},
+			expected: ErrInvalidTimestamp,
 		},
 		{
 			name:     "too much into the future",
-			auth:     &authRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now() + nostr.Timestamp(time.Minute+1)}},
-			expected: &requestError{ID: "abc", Err: ErrInvalidTimestamp},
+			auth:     &authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now() + nostr.Timestamp(time.Minute+1)})},
+			expected: ErrInvalidTimestamp,
+		},
+		{
+			name:     "no relay tag",
+			auth:     &authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", "challenge"}}})},
+			expected: ErrInvalidAuthRelay,
+		},
+		{
+			name:     "relay tag is different",
+			auth:     &authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", "challenge"}, {"relay", "different"}}})},
+			expected: ErrInvalidAuthRelay,
+		},
+		{
+			name:     "invalid ID",
+			auth:     &authRequest{Event: &nostr.Event{Kind: 22242, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", "challenge"}, {"relay", "example.com"}}}},
+			expected: ErrInvalidEventID,
 		},
 		{
 			name:     "no challenge tag",
-			auth:     &authRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now()}},
-			expected: &requestError{ID: "abc", Err: ErrInvalidAuthChallenge},
+			auth:     &authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"relay", "example.com"}}})},
+			expected: ErrInvalidAuthChallenge,
 		},
 		{
-			name:     "challenge is different",
-			auth:     &authRequest{Event: &nostr.Event{Kind: 22242, ID: "abc", CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", "different"}}}},
-			expected: &requestError{ID: "abc", Err: ErrInvalidAuthChallenge},
+			name:     "challenge tag is different",
+			auth:     &authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"relay", "example.com"}, {"challenge", "different"}}})},
+			expected: ErrInvalidAuthChallenge,
+		},
+		{
+			name:     "valid",
+			auth:     &authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"relay", "example.com"}, {"challenge", "challenge"}}})},
+			expected: nil,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &client{}
-			if err := client.validateAuth(test.auth); !errors.Is(err, test.expected) {
+			client := &client{relay: &Relay{}}
+			client.challenge = "challenge"
+			client.relay.domain = "example.com"
+
+			requestErr := client.validateAuth(test.auth)
+			var err error
+			if requestErr != nil {
+				err = requestErr.Err
+			}
+
+			if !errors.Is(err, test.expected) {
 				t.Fatalf("expected error %v, got %v", test.expected, err)
 			}
 		})
@@ -429,4 +453,10 @@ func BenchmarkCreateChallenge(b *testing.B) {
 		rand.Read(challenge)
 		hex.EncodeToString(challenge)
 	}
+}
+
+func Signed(e nostr.Event) *nostr.Event {
+	sk := nostr.GeneratePrivateKey()
+	e.Sign(sk)
+	return &e
 }

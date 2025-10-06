@@ -230,13 +230,6 @@ func (c *client) validateAuth(auth *authRequest) *requestError {
 		return &requestError{ID: auth.ID, Err: ErrInvalidTimestamp}
 	}
 
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.challenge == "" || auth.Challenge() != c.challenge {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
-	}
-
 	if !strings.Contains(auth.Relay(), c.relay.domain) {
 		return &requestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
 	}
@@ -248,6 +241,14 @@ func (c *client) validateAuth(auth *authRequest) *requestError {
 	if err := InvalidSignature(c, auth.Event); err != nil {
 		return &requestError{ID: auth.ID, Err: err}
 	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.challenge == "" || auth.Challenge() != c.challenge {
+		return &requestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
+	}
+
 	return nil
 }
 
