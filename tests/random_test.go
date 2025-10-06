@@ -17,7 +17,10 @@ import (
 )
 
 var (
-	rg               *rand.Rand
+	seed  uint64
+	rg    *rand.Rand
+	start time.Time
+
 	httpRequests     atomic.Int32
 	abnormalClosures atomic.Int32
 	clients          atomic.Int32
@@ -31,18 +34,19 @@ const (
 	clientFailProbability       float32 = 0.01
 	relayFailProbability        float32 = 0.01
 
-	TestDuration = 500 * time.Second
+	testDuration = 500 * time.Second
 )
 
 func TestRandom(t *testing.T) {
 	var addr = "localhost:3334"
 	var errChan = make(chan error, 10)
 
-	seed := uint64(time.Now().Unix())
+	start = time.Now()
+	seed = uint64(time.Now().Unix())
 	rg = rand.New(rand.NewPCG(0, seed))
 
 	t.Run(fmt.Sprintf("seed__PCG(0,%d)", seed), func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), TestDuration)
+		ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 		defer cancel()
 
 		relay := NewRelay(
@@ -157,7 +161,7 @@ func clientMadness(
 	URL string) {
 
 	// decrease timeout to trigger mass disconnections at the end of the test
-	ctx, cancel := context.WithTimeout(ctx, TestDuration-5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, testDuration-5*time.Second)
 	defer cancel()
 
 	if !strings.HasPrefix(URL, "ws://") {
@@ -287,7 +291,7 @@ func (c *client) read(
 }
 
 func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 16
+	const statsLines = 18
 	var first = true
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -307,6 +311,8 @@ func displayStats(ctx context.Context, r *rely.Relay) {
 			}
 
 			fmt.Println("---------------- test -----------------")
+			fmt.Printf("test time: %v\n", time.Since(start))
+			fmt.Printf("test seed: %v\n", seed)
 			fmt.Printf("total http requests: %d\n", httpRequests.Load())
 			fmt.Printf("abnormal closures: %d\n", abnormalClosures.Load())
 			fmt.Printf("total clients: %d\n", clients.Load())
