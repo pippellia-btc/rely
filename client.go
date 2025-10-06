@@ -5,28 +5,23 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/nbd-wtf/go-nostr"
 )
-
-const authChallengeBytes = 16
 
 // The Client where the request comes from. All methods are safe for concurrent use.
 type Client interface {
 	// IP address of the client.
 	IP() string
 
-	// Subscriptions returns the currently active "REQ" subscriptions of the client.
-	Subscriptions() []Subscription
-
 	// Pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
 	// To initiate the authentication, call [Client.SendAuth].
 	Pubkey() string
+
+	// Subscriptions returns the currently active "REQ" subscriptions of the client.
+	Subscriptions() []Subscription
 
 	// SendNotice to the client, useful for greeting, warnings and other informational messages.
 	SendNotice(string)
@@ -54,53 +49,39 @@ type Client interface {
 // It's responsible for parsing and validating the requests, and for writing the [response]s
 // to all matching [Subscription]s.
 type client struct {
-	mu            sync.RWMutex
 	ip            string
+	auther        auther
 	subscriptions Subscriptions
 
-	// NIP-42
-	pubkey    string
-	challenge string
-
 	relay     *Relay
-	conn      *websocket.Conn
 	responses chan response
+	conn      *websocket.Conn
 
 	isUnregistering  atomic.Bool
 	droppedResponses atomic.Int64
 }
 
 func (c *client) IP() string                    { return c.ip }
+func (c *client) Pubkey() string                { return c.auther.Pubkey() }
 func (c *client) Subscriptions() []Subscription { return c.subscriptions.List() }
 func (c *client) DroppedResponses() int         { return int(c.droppedResponses.Load()) }
 func (c *client) RemainingCapacity() int        { return cap(c.responses) - len(c.responses) }
-
-func (c *client) setPubkey(pubkey string) {
-	c.mu.Lock()
-	c.pubkey = pubkey
-	c.mu.Unlock()
-}
-
-func (c *client) Pubkey() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.pubkey
-}
 
 func (c *client) SendNotice(message string) {
 	c.send(noticeResponse{Message: message})
 }
 
 func (c *client) SendAuth() {
-	challenge := make([]byte, authChallengeBytes)
-	rand.Read(challenge)
+	bytes := make([]byte, authChallengeBytes)
+	rand.Read(bytes)
+	challenge := hex.EncodeToString(bytes)
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.auther.mu.Lock()
+	defer c.auther.mu.Unlock()
 
-	c.pubkey = ""
-	c.challenge = hex.EncodeToString(challenge)
-	c.send(authResponse{Challenge: c.challenge})
+	c.auther.pubkey = ""
+	c.auther.challenge = challenge
+	c.send(authResponse{Challenge: challenge})
 }
 
 // Disconnect the client by sending a [websocket.CloseNormalClosure]
@@ -143,38 +124,6 @@ func (c *client) rejectCount(count *countRequest) *requestError {
 			return &requestError{ID: count.id, Err: err}
 		}
 	}
-	return nil
-}
-
-// validateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
-func (c *client) validateAuth(auth *authRequest) *requestError {
-	if auth.Event.Kind != nostr.KindClientAuthentication {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthKind}
-	}
-
-	if time.Since(auth.CreatedAt.Time()).Abs() > time.Minute {
-		return &requestError{ID: auth.ID, Err: ErrInvalidTimestamp}
-	}
-
-	if !strings.Contains(auth.Relay(), c.relay.domain) {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
-	}
-
-	if err := InvalidID(c, auth.Event); err != nil {
-		return &requestError{ID: auth.ID, Err: err}
-	}
-
-	if err := InvalidSignature(c, auth.Event); err != nil {
-		return &requestError{ID: auth.ID, Err: err}
-	}
-
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.challenge == "" || auth.Challenge() != c.challenge {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
-	}
-
 	return nil
 }
 
@@ -290,12 +239,12 @@ func (c *client) read() {
 				continue
 			}
 
-			if err := c.validateAuth(auth); err != nil {
+			if err := c.auther.Validate(auth); err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
-			c.setPubkey(auth.PubKey)
+			c.auther.SetPubkey(auth.PubKey)
 			c.send(okResponse{ID: auth.ID, Saved: true})
 			c.relay.OnAuth(c)
 

@@ -430,11 +430,12 @@ func TestValidateAuth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &client{relay: &Relay{}}
-			client.challenge = "challenge"
-			client.relay.domain = "example.com"
+			auther := auther{
+				challenge: "challenge",
+				domain:    "example.com",
+			}
 
-			requestErr := client.validateAuth(test.auth)
+			requestErr := auther.Validate(test.auth)
 			var err error
 			if requestErr != nil {
 				err = requestErr.Err

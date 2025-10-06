@@ -28,13 +28,13 @@ func InvalidID(c Client, e *nostr.Event) error {
 // InvalidSignature returns an error if the event's signature is invalid.
 func InvalidSignature(c Client, e *nostr.Event) error {
 	match, err := e.CheckSignature()
-	if !match {
-		if err != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidEventSignature, err.Error())
-		}
-		return ErrInvalidEventSignature
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidEventSignature, err.Error())
 	}
 
+	if !match {
+		return ErrInvalidEventSignature
+	}
 	return nil
 }
 

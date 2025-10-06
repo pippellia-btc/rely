@@ -361,6 +361,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		relay:     r,
 		conn:      conn,
 		responses: make(chan response, r.responseLimit),
+		auther:    auther{domain: r.domain},
 	}
 
 	select {

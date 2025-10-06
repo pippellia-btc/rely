@@ -20,12 +20,6 @@ var (
 	ErrInvalidReqRequest     = errors.New(`a REQ request must follow this format: ['REQ', {subscription_id}, {filter1}, {filter2}, ...]`)
 	ErrInvalidCountRequest   = errors.New(`a COUNT request must follow this format: ['COUNT', {subscription_id}, {filter1}, {filter2}, ...]`)
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
-
-	ErrInvalidAuthRequest   = errors.New(`an AUTH request must follow this format: ['AUTH', {event_JSON}]`)
-	ErrInvalidTimestamp     = errors.New(`created_at must be within one minute from the current time`)
-	ErrInvalidAuthKind      = errors.New(`invalid AUTH kind`)
-	ErrInvalidAuthChallenge = errors.New(`invalid AUTH challenge`)
-	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
 )
 
 type request interface {
