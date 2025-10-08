@@ -31,7 +31,7 @@ type Client interface {
 	// and a new challenge is generated and sent.
 	SendAuth()
 
-	// Disconnect the client, closing its websocket connection.
+	// Disconnect the client, closing its websocket connection with a [websocket.CloseNormalClosure]
 	Disconnect()
 
 	// DroppedResponses returns the total number of responses that were droppedResponses
@@ -84,7 +84,6 @@ func (c *client) SendAuth() {
 	c.send(authResponse{Challenge: challenge})
 }
 
-// Disconnect the client by sending a [websocket.CloseNormalClosure]
 func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		c.relay.unregister <- c
