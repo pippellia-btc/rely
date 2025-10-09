@@ -1,15 +1,18 @@
 package rely
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
+	"io"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
+
+	gojson "github.com/goccy/go-json"
 )
 
 func TestApplyBudget(t *testing.T) {
@@ -89,52 +92,53 @@ func TestApplyBudget(t *testing.T) {
 	}
 }
 
-func TestParseJSON(t *testing.T) {
+func TestParseLabel(t *testing.T) {
 	tests := []struct {
 		name string
 		data []byte
 
 		label string
-		array []json.RawMessage
 		err   error
 	}{
 		{
-			name: "invalid array",
-			data: []byte(`["CLOSE", ]`),
-			err:  ErrGeneric,
-		},
-		{
-			name: "label is not a string",
-			data: []byte(`[111, "ciao"]`),
-			err:  ErrGeneric,
-		},
-		{
-			name: "array is too short",
-			data: []byte(`["CLOSE"]`),
-			err:  ErrGeneric,
-		},
-
-		{
-			name:  "valid",
+			name:  "valid CLOSE",
 			data:  []byte(`["CLOSE", "abc"]`),
 			label: "CLOSE",
-			array: []json.RawMessage{json.RawMessage(`"abc"`)},
+		},
+		{
+			name:  "valid EVENT",
+			data:  []byte(`["EVENT", "abc"]`),
+			label: "EVENT",
+		},
+		{
+			name:  "valid AUTH",
+			data:  []byte(`["AUTH", "abc"]`),
+			label: "AUTH",
+		},
+		{
+			name:  "valid REQ",
+			data:  []byte(`["REQ", "abc"]`),
+			label: "REQ",
+		},
+		{
+			name:  "valid COUNT",
+			data:  []byte(`["COUNT", "abc"]`),
+			label: "COUNT",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			label, array, err := parseJSON(test.data)
+			r := bytes.NewReader(test.data)
+			d := gojson.NewDecoder(r)
+
+			label, err := parseLabel(d)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
 
 			if label != test.label {
 				t.Fatalf("expected label %s, got %s", test.label, label)
-			}
-
-			if !reflect.DeepEqual(array, test.array) {
-				t.Fatalf("expected json array %v, got %v", test.array, array)
 			}
 		})
 	}
@@ -150,7 +154,7 @@ func TestParseEvent(t *testing.T) {
 		{
 			name: "invalid",
 			data: []byte(`["EVENT", "sdada"]`),
-			err:  &requestError{Err: ErrInvalideventRequest},
+			err:  &requestError{Err: ErrInvalidEventRequest},
 		},
 		{
 			name:     "valid kind 1",
@@ -166,12 +170,15 @@ func TestParseEvent(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := parseJSON(test.data)
+			r := bytes.NewReader(test.data)
+			d := gojson.NewDecoder(r)
+
+			_, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			event, err := parseEvent(json)
+			event, err := parseEvent(d)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -219,12 +226,15 @@ func TestParseReq(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := parseJSON(test.data)
+			r := bytes.NewReader(test.data)
+			d := gojson.NewDecoder(r)
+
+			_, err := parseLabel(d)
 			if err != nil {
-				t.Fatalf("expected error nil, got %v", err)
+				t.Fatalf("expected nil, got %v", err)
 			}
 
-			req, err := parseReq(json)
+			req, err := parseReq(d)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -272,12 +282,15 @@ func TestParseCount(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := parseJSON(test.data)
+			r := bytes.NewReader(test.data)
+			d := gojson.NewDecoder(r)
+
+			_, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			count, err := parseCount(json)
+			count, err := parseCount(d)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -320,12 +333,15 @@ func TestParseClose(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := parseJSON(test.data)
+			r := bytes.NewReader(test.data)
+			d := gojson.NewDecoder(r)
+
+			_, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			close, err := parseClose(json)
+			close, err := parseClose(d)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -358,12 +374,15 @@ func TestParseAuth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, json, err := parseJSON(test.data)
+			r := bytes.NewReader(test.data)
+			d := gojson.NewDecoder(r)
+
+			_, err := parseLabel(d)
 			if err != nil {
 				t.Fatalf("expected error nil, got %v", err)
 			}
 
-			auth, err := parseAuth(json)
+			auth, err := parseAuth(d)
 			if !errors.Is(err, test.err) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
@@ -460,4 +479,43 @@ func Signed(e nostr.Event) *nostr.Event {
 	sk := nostr.GeneratePrivateKey()
 	e.Sign(sk)
 	return &e
+}
+
+var (
+	dataEvent = []byte(`["EVENT", {"kind":1,"id":"dc90c95f09947507c1044e8f48bcf6350aa6bff1507dd4acfc755b9239b5c962","pubkey":"3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d","created_at":1644271588,"tags":[],"content":"now that https://blueskyweb.org/blog/2-7-2022-overview was announced we can stop working on nostr?","sig":"230e9d8f0ddaf7eb70b5f7741ccfa37e87a455c9a469282e3464e2052d3192cd63a167e196e381ef9d7e69e9ea43af2443b839974dc85d8aaab9efe1d9296524"}]`)
+	dataReq   = []byte(`["REQ", "abcd", {"kinds": [1]}, {"kinds": [30023], "#d": ["buteko", "batuke"]}]`)
+
+	readerEvent = bytes.NewReader(dataEvent)
+	readerReq   = bytes.NewReader(dataReq)
+)
+
+func BenchmarkParseEvent(b *testing.B) {
+	for range b.N {
+		readerEvent.Seek(0, io.SeekStart)
+		d := gojson.NewDecoder(readerEvent)
+
+		_, err := parseLabel(d)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if _, err := parseEvent(d); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkParseReq(b *testing.B) {
+	for range b.N {
+		readerReq.Seek(0, io.SeekStart)
+		dec := gojson.NewDecoder(readerReq)
+		_, err := parseLabel(dec)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if _, err := parseReq(dec); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

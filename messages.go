@@ -2,18 +2,19 @@ package rely
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/goccy/go-json"
 
 	"github.com/nbd-wtf/go-nostr"
 )
 
 var (
-	ErrGeneric         = errors.New(`the request must be a JSON array with a length greater than two`)
+	ErrGeneric         = errors.New(`the request must be a JSON array`)
 	ErrUnsupportedType = errors.New(`the request type must be one between 'EVENT', 'REQ', 'CLOSE', 'COUNT' and 'AUTH'`)
 
-	ErrInvalideventRequest   = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
+	ErrInvalidEventRequest   = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
 	ErrInvalidEventID        = errors.New(`invalid event ID`)
 	ErrInvalidEventSignature = errors.New(`invalid event signature`)
 
@@ -122,117 +123,113 @@ func (e *requestError) Is(target error) bool {
 	return t.ID == e.ID && errors.Is(e.Err, t.Err)
 }
 
-// parseJSON decodes the message received from the websocket into a label and json array.
-// Based on this label (e.g. "EVENT"), the caller can parse the json into its own structure (e.g. via [parseEvent])
-func parseJSON(data []byte) (label string, array []json.RawMessage, err error) {
-	if err := json.Unmarshal(data, &array); err != nil {
-		return "", nil, fmt.Errorf("%w: %w", ErrGeneric, err)
+func parseLabel(d *json.Decoder) (string, error) {
+	token, err := d.Token()
+	if err != nil {
+		return "", fmt.Errorf("failed to read next JSON token: %w", err)
 	}
 
-	if len(array) < 2 {
-		return "", nil, ErrGeneric
+	if token != json.Delim('[') {
+		return "", fmt.Errorf("expected JSON array start '[' but got %v", token)
 	}
 
-	if err := json.Unmarshal(array[0], &label); err != nil {
-		return "", nil, fmt.Errorf("%w: %w", ErrGeneric, err)
+	var label string
+	if err := d.Decode(&label); err != nil {
+		return "", fmt.Errorf("failed to read label: %w", err)
 	}
 
-	return label, array[1:], nil
+	return label, nil
 }
 
-// parseEvent parses the json array into an [eventRequest].
-func parseEvent(array []json.RawMessage) (*eventRequest, *requestError) {
-	var event nostr.Event
-	if err := json.Unmarshal(array[0], &event); err != nil {
-		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalideventRequest, err)}
+// parseEvent parses the
+func parseEvent(d *json.Decoder) (*eventRequest, *requestError) {
+	event := &eventRequest{Event: new(nostr.Event)}
+	if err := d.Decode(event.Event); err != nil {
+		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidEventRequest, err)}
 	}
-
-	return &eventRequest{Event: &event}, nil
+	return event, nil
 }
 
 // parseAuth parses the json array into an [authRequest].
-func parseAuth(array []json.RawMessage) (*authRequest, *requestError) {
-	var auth nostr.Event
-	if err := json.Unmarshal(array[0], &auth); err != nil {
+func parseAuth(d *json.Decoder) (*authRequest, *requestError) {
+	auth := &authRequest{Event: new(nostr.Event)}
+	if err := d.Decode(auth.Event); err != nil {
 		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidAuthRequest, err)}
 	}
-
-	return &authRequest{Event: &auth}, nil
+	return auth, nil
 }
 
-// parseReq parses the json array into an [reqRequest], validating the subscription ID.
-func parseReq(array []json.RawMessage) (*reqRequest, *requestError) {
-	ID, err1 := parseID(array[0])
-	if err1 != nil {
-		return nil, err1
-	}
-
-	if len(array) < 2 {
-		return nil, &requestError{ID: ID, Err: ErrInvalidReqRequest}
-	}
-
-	filters, err2 := parseFilters(array[1:])
-	if err2 != nil {
-		return nil, &requestError{ID: ID, Err: err2}
-	}
-
-	return &reqRequest{id: ID, Filters: filters}, nil
-}
-
-// parseCount parses the json array into an [countRequest], validating the subscription ID.
-func parseCount(array []json.RawMessage) (*countRequest, *requestError) {
-	ID, err1 := parseID(array[0])
-	if err1 != nil {
-		return nil, err1
-	}
-
-	if len(array) < 2 {
-		return nil, &requestError{ID: ID, Err: ErrInvalidCountRequest}
-	}
-
-	filters, err2 := parseFilters(array[1:])
-	if err2 != nil {
-		return nil, &requestError{ID: ID, Err: err2}
-	}
-
-	return &countRequest{id: ID, Filters: filters}, nil
-}
-
-// parseClose parses the json array into an [closeRequest], validating the subscription ID.
-func parseClose(array []json.RawMessage) (*closeRequest, *requestError) {
-	ID, err := parseID(array[0])
+func parseReq(d *json.Decoder) (*reqRequest, *requestError) {
+	req := &reqRequest{}
+	err := d.Decode(&req.id)
 	if err != nil {
-		return nil, err
+		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
 	}
-	return &closeRequest{subID: ID}, nil
+
+	if len(req.id) < 1 || len(req.id) > 64 {
+		return nil, &requestError{ID: req.id, Err: ErrInvalidSubscriptionID}
+	}
+
+	req.Filters, err = parseFilters(d)
+	if err != nil {
+		return nil, &requestError{ID: req.id, Err: err}
+	}
+
+	if len(req.Filters) == 0 {
+		return nil, &requestError{ID: req.id, Err: ErrInvalidReqRequest}
+	}
+	return req, nil
 }
 
-func parseID(data json.RawMessage) (string, *requestError) {
-	var ID string
-	if err := json.Unmarshal(data, &ID); err != nil {
-		return "", &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
+func parseCount(d *json.Decoder) (*countRequest, *requestError) {
+	count := &countRequest{}
+	err := d.Decode(&count.id)
+	if err != nil {
+		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
 	}
 
-	if len(ID) < 1 || len(ID) > 64 {
-		return "", &requestError{ID: ID, Err: ErrInvalidSubscriptionID}
+	if len(count.id) < 1 || len(count.id) > 64 {
+		return nil, &requestError{ID: count.id, Err: ErrInvalidSubscriptionID}
 	}
 
-	return ID, nil
+	count.Filters, err = parseFilters(d)
+	if err != nil {
+		return nil, &requestError{ID: count.id, Err: err}
+	}
+
+	if len(count.Filters) == 0 {
+		return nil, &requestError{ID: count.id, Err: ErrInvalidCountRequest}
+	}
+	return count, nil
 }
 
-func parseFilters(array []json.RawMessage) (filters nostr.Filters, err error) {
-	filters = make(nostr.Filters, len(array))
-	for i, data := range array {
-		var filter nostr.Filter
-		if err = json.Unmarshal(data, &filter); err != nil {
-			return nil, fmt.Errorf("%w: failed to decode filter at index %d: %s", ErrInvalidReqRequest, i, err)
+func parseClose(d *json.Decoder) (*closeRequest, *requestError) {
+	close := &closeRequest{}
+	if err := d.Decode(&close.subID); err != nil {
+		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
+	}
+
+	if len(close.subID) < 1 || len(close.subID) > 64 {
+		return nil, &requestError{ID: close.subID, Err: ErrInvalidSubscriptionID}
+	}
+	return close, nil
+}
+
+func parseFilters(d *json.Decoder) (nostr.Filters, error) {
+	filters := make(nostr.Filters, 0, 3)
+	filter := nostr.Filter{}
+
+	for d.More() {
+		if err := d.Decode(&filter); err != nil {
+			return nil, fmt.Errorf("%w: failed to decode filter: %w", ErrInvalidReqRequest, err)
 		}
 
 		if filter.LimitZero || filter.Limit < 0 {
 			filter.Limit = 0
 		}
 
-		filters[i] = filter
+		filters = append(filters, filter)
+		filter = nostr.Filter{} // reinitialize
 	}
 
 	return filters, nil

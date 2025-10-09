@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/goccy/go-json"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -140,7 +142,11 @@ func (c *client) read() {
 	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait)); return nil })
 
 	for {
-		_, data, err := c.conn.ReadMessage()
+		if invalidMessages >= 3 {
+			return
+		}
+
+		messageType, reader, err := c.conn.NextReader()
 		if err != nil {
 			if isUnexpectedClose(err) {
 				log.Printf("unexpected close error from IP %s: %v", c.ip, err)
@@ -148,21 +154,23 @@ func (c *client) read() {
 			return
 		}
 
-		label, json, err := parseJSON(data)
+		if messageType != websocket.TextMessage {
+			invalidMessages++
+			c.send(noticeResponse{Message: fmt.Sprintf("%v: received binary message", ErrGeneric)})
+			continue
+		}
+
+		decoder := json.NewDecoder(reader)
+		label, err := parseLabel(decoder)
 		if err != nil {
 			invalidMessages++
-			if invalidMessages > 2 {
-				// disconnect abruptly
-				return
-			}
-
 			c.send(noticeResponse{Message: fmt.Sprintf("%v: %v", ErrGeneric, err)})
 			continue
 		}
 
 		switch label {
 		case "EVENT":
-			event, err := parseEvent(json)
+			event, err := parseEvent(decoder)
 			if err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
@@ -179,7 +187,7 @@ func (c *client) read() {
 			}
 
 		case "REQ":
-			req, err := parseReq(json)
+			req, err := parseReq(decoder)
 			if err != nil {
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
@@ -201,7 +209,7 @@ func (c *client) read() {
 			c.subscriptions.Add(sub)
 
 		case "COUNT":
-			count, err := parseCount(json)
+			count, err := parseCount(decoder)
 			if err != nil {
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
@@ -223,7 +231,7 @@ func (c *client) read() {
 			c.subscriptions.Add(sub)
 
 		case "CLOSE":
-			close, err := parseClose(json)
+			close, err := parseClose(decoder)
 			if err != nil {
 				c.send(noticeResponse{Message: err.Error()})
 				continue
@@ -232,7 +240,7 @@ func (c *client) read() {
 			c.subscriptions.Remove(close.subID)
 
 		case "AUTH":
-			auth, err := parseAuth(json)
+			auth, err := parseAuth(decoder)
 			if err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
