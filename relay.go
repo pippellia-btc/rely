@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -21,14 +22,14 @@ type Relay struct {
 	clients              map[*client]struct{} // set of connected clients
 	clientsCount         atomic.Int64         // number of connected clients
 	lastRegistrationFail atomic.Int64         // last time a client registration failed
+	wg                   sync.WaitGroup       // needed for graceful shutdown
 
 	register   chan *client
 	unregister chan *client
-	queue      chan request      // the queue for EVENTs, REQs and COUNTs
 	broadcast  chan *nostr.Event // used to broadcast events to all matching clients
+	queue      chan request      // the queue for EVENTs, REQs and COUNTs
 
 	RelayFunctions
-
 	systemOptions
 	websocketOptions
 }
@@ -162,9 +163,10 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 }
 
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
+//
 // It's a blocking operation, that stops only when the context gets cancelled.
-// Use [Relay.Start] if you don't want to listen and serve right away.
-// Customize its behaviour by writing OnConnect, OnEvent, OnReq and other [RelayFunctions].
+// Use [Relay.Start] if you don't want to listen and serve right away, but then
+// don't forget to wait for a graceful shutdown with [Relay.Wait].
 func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	r.Start(ctx)
 	exitErr := make(chan error, 1)
@@ -181,27 +183,43 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		return server.Shutdown(ctx)
+		err := server.Shutdown(ctx)
+		r.Wait()
+		return err
 
 	case err := <-exitErr:
 		return err
 	}
 }
 
-// Start the relay in separate goroutines. The relay will later need to be served using http.ListenAndServe.
-// Customize its behaviour by writing OnConnect, OnEvent, OnReq and other [RelayFunctions].
+// Start the relay in separate goroutines in a non-blocking fashion.
+//
+// The relay will later need to be served using [http.ListenAndServe] or equivalent;
+// see [Relay.StartAndServe] for an example on how to do it.
+// For a proper shutdown process, you have to call [Relay.Wait] before closing your program.
 func (r *Relay) Start(ctx context.Context) {
+	r.wg.Add(2)
 	go r.coordinator(ctx)
 	go r.processor(ctx)
 }
 
+// Wait blocks until the relay has shut down completely.
+//
+// This is useful only when you manually call [Relay.Start] and need to wait for a
+// graceful shutdown before the program exits.
+// The shutdown process is initiated by cancelling the context passed to Start().
+func (r *Relay) Wait() {
+	r.wg.Wait()
+}
+
 // Coordinate the registration and unregistration of clients, and the broadcasting of events.
 func (r *Relay) coordinator(ctx context.Context) {
-	defer r.close()
+	defer r.wg.Done()
 
 	for {
 		select {
 		case <-ctx.Done():
+			r.close()
 			return
 
 		case client := <-r.register:
@@ -236,16 +254,40 @@ func (r *Relay) coordinator(ctx context.Context) {
 	}
 }
 
-// close sends a close response for each subscription of each client.
+// Close correctly unregisters all connected clients for a safe shutdown.
 func (r *Relay) close() {
 	log.Println("shutting down the relay...")
 	defer log.Println("relay stopped")
 
+	// When the ctx in [Relay.Start] is cancelled, [Relay.coordinator] returns, calling close.
+	// At this point clients can be divided into two non-overlapping sets:
+	//   - clients in the unregistering queue
+	//   - clients not in the unregistering queue
+	//
+	// We can distinguish between them by using the [client.isUnregistering] bool, which is
+	// atomically set to true in the defers of [client.read].
+	//
+	// So, we first remove all clients not in the unregistering queue, which guarantees
+	// that what remains is in the aforementioned queue, which will be drained later.
+	// Doing the opposite won't work because clients can end up in the unregistering queue
+	// on their own after we drain it the first time.
+
 	for client := range r.clients {
-		subs := client.subscriptions.List()
-		for i := range subs {
-			subs[i].cancel()
-			client.send(closedResponse{ID: subs[i].ID, Reason: "shutting down the relay"})
+		if client.isUnregistering.CompareAndSwap(false, true) {
+			delete(r.clients, client)
+			close(client.responses)
+			r.clientsCount.Add(-1)
+		}
+	}
+
+	for {
+		select {
+		case client := <-r.unregister:
+			delete(r.clients, client)
+			close(client.responses)
+			r.clientsCount.Add(-1)
+		default:
+			return
 		}
 	}
 }
@@ -253,6 +295,8 @@ func (r *Relay) close() {
 // Process the requests in the relay queue with [Relay.maxProcessors] processors,
 // by appliying the user defined [RelayFunctions].
 func (r *Relay) processor(ctx context.Context) {
+	defer r.wg.Done()
+
 	sem := make(chan struct{}, r.maxProcessors)
 
 	for {
@@ -366,6 +410,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 
 	select {
 	case r.register <- client:
+		r.wg.Add(2)
 		go client.write()
 		go client.read()
 

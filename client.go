@@ -131,7 +131,10 @@ func (c *client) rejectCount(count *countRequest) *requestError {
 // The client reads from the websocket and parses the data into the appropriate structure (e.g. [reqRequest]).
 // It manages creation and cancellation of subscriptions, and sends the request to the [Relay] to be processed.
 func (c *client) read() {
-	defer c.Disconnect()
+	defer func() {
+		c.Disconnect()
+		c.relay.wg.Done()
+	}()
 
 	invalidMessages := 0
 	c.conn.SetReadLimit(c.relay.maxMessageSize)
@@ -265,6 +268,7 @@ func (c *client) write() {
 	defer func() {
 		ticker.Stop()
 		c.conn.Close()
+		c.relay.wg.Done()
 	}()
 
 	for {
