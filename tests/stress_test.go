@@ -48,8 +48,6 @@ func TestRandom(t *testing.T) {
 		defer cancel()
 
 		relay := NewRelay(
-			WithQueueCapacity(10000),
-			WithMaxProcessors(10),
 			WithoutPressureLogs(),
 		)
 
@@ -58,13 +56,23 @@ func TestRandom(t *testing.T) {
 		relay.OnReq = dummyOnReq
 		relay.OnCount = dummyOnCount
 
-		go displayStats(ctx, relay)
-		go clientMadness(ctx, errChan, addr)
-
 		runtime.SetMutexProfileFraction(1)
-
 		go func() { http.ListenAndServe(":6060", nil) }()
-		go func() { errChan <- relay.StartAndServe(ctx, addr) }()
+		go displayStats(ctx, relay)
+
+		go func() {
+			ctx, cancel := context.WithTimeout(ctx, testDuration-5*time.Second)
+			defer cancel()
+			if err := relay.StartAndServe(ctx, addr); err != nil {
+				errChan <- err
+			}
+		}()
+
+		go func() {
+			ctx, cancel := context.WithTimeout(ctx, testDuration-10*time.Second)
+			defer cancel()
+			clientMadness(ctx, errChan, addr)
+		}()
 
 		select {
 		case err := <-errChan:
@@ -162,10 +170,6 @@ func clientMadness(
 	ctx context.Context,
 	errChan chan error,
 	URL string) {
-
-	// decrease timeout to trigger mass disconnections at the end of the test
-	ctx, cancel := context.WithTimeout(ctx, testDuration-5*time.Second)
-	defer cancel()
 
 	if !strings.HasPrefix(URL, "ws://") {
 		URL = "ws://" + URL
