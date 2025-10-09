@@ -70,7 +70,7 @@ type RelayFunctions struct {
 
 func newRelayFunctions() RelayFunctions {
 	return RelayFunctions{
-		RejectConnection: []func(Stats, *http.Request) error{RegistrationFailWithin(time.Second)},
+		RejectConnection: []func(Stats, *http.Request) error{RegistrationFailWithin(3 * time.Second)},
 		RejectEvent:      []func(Client, *nostr.Event) error{InvalidID, InvalidSignature},
 
 		OnConnect:      func(Client) {},
