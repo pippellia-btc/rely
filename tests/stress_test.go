@@ -2,9 +2,14 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
+	"net/http"
+	_ "net/http/pprof"
+	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,33 +22,26 @@ import (
 )
 
 var (
-	seed  uint64
-	rg    *rand.Rand
-	start time.Time
-
-	httpRequests     atomic.Int32
-	abnormalClosures atomic.Int32
-	clients          atomic.Int32
-	events           atomic.Int32
-	reqs             atomic.Int32
-	counts           atomic.Int32
+	start            time.Time
+	httpRequests     atomic.Int64
+	nostrRequests    atomic.Int64
+	dataSent         atomic.Int64
+	clients          atomic.Int64
+	processed        atomic.Int64
+	abnormalClosures atomic.Int64
 )
 
 const (
-	clientDisconnectProbability float32 = 0.01
-	clientFailProbability       float32 = 0.01
-	relayFailProbability        float32 = 0.01
-
-	testDuration = 500 * time.Second
+	testDuration                time.Duration = 500 * time.Second
+	relayFailProbability        float32       = 0.05
+	relayDisconnectProbability  float32       = 0.01
+	clientDisconnectProbability float32       = 0.01
 )
 
 func TestRandom(t *testing.T) {
-	var addr = "localhost:3334"
-	var errChan = make(chan error, 10)
-
 	start = time.Now()
-	seed = uint64(time.Now().Unix())
-	rg = rand.New(rand.NewPCG(0, seed))
+	addr := "localhost:3334"
+	errChan := make(chan error, 10)
 
 	t.Run(fmt.Sprintf("seed__PCG(0,%d)", seed), func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), testDuration)
@@ -62,6 +60,10 @@ func TestRandom(t *testing.T) {
 
 		go displayStats(ctx, relay)
 		go clientMadness(ctx, errChan, addr)
+
+		runtime.SetMutexProfileFraction(1)
+
+		go func() { http.ListenAndServe(":6060", nil) }()
 		go func() { errChan <- relay.StartAndServe(ctx, addr) }()
 
 		select {
@@ -76,43 +78,44 @@ func TestRandom(t *testing.T) {
 
 func dummyOnConnect(c rely.Client) {
 	clients.Add(1)
-	if rg.Float32() < relayFailProbability {
+	if rg.Float32() < relayDisconnectProbability {
 		c.Disconnect()
 		return
 	}
-
-	fibonacci(25) // simulate some work
 }
 
 func dummyOnEvent(c rely.Client, e *nostr.Event) error {
-	events.Add(1)
+	processed.Add(1)
 	if rg.Float32() < relayFailProbability {
-		c.Disconnect()
-		return fmt.Errorf("failed")
+		return errors.New("failed")
 	}
 
-	fibonacci(25) // simulate some work
+	if rg.Float32() < relayDisconnectProbability {
+		c.Disconnect()
+	}
 	return nil
 }
 
 func dummyOnReq(ctx context.Context, c rely.Client, f nostr.Filters) ([]nostr.Event, error) {
-	reqs.Add(1)
+	processed.Add(1)
 	if rg.Float32() < relayFailProbability {
-		c.Disconnect()
-		return nil, fmt.Errorf("failed")
+		return nil, errors.New("failed")
 	}
 
-	fibonacci(25) // simulate some work
-	return randomSlice(100, randomEvent), nil
+	if rg.Float32() < relayDisconnectProbability {
+		c.Disconnect()
+	}
+	return nil, nil
 }
 func dummyOnCount(ctx context.Context, c rely.Client, f nostr.Filters) (int64, bool, error) {
-	counts.Add(1)
+	processed.Add(1)
 	if rg.Float32() < relayFailProbability {
-		c.Disconnect()
-		return 0, false, fmt.Errorf("failed")
+		return 0, false, errors.New("failed")
 	}
 
-	fibonacci(25) // simulate some work
+	if rg.Float32() < relayDisconnectProbability {
+		c.Disconnect()
+	}
 	return rg.Int64(), true, nil
 }
 
@@ -120,8 +123,8 @@ type client struct {
 	conn    *websocket.Conn
 	errChan chan error
 
-	generateRequest  func() ([]byte, error)
-	validateResponse func([]byte) error
+	generateRequest  func() []byte
+	validateResponse func(*json.Decoder) error
 }
 
 func newClient(conn *websocket.Conn, errChan chan error) *client {
@@ -131,8 +134,8 @@ func newClient(conn *websocket.Conn, errChan chan error) *client {
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
-			generateRequest:  randomeventRequest,
-			validateResponse: validateLabel([]string{"OK"}),
+			generateRequest:  quickEventRequest,
+			validateResponse: validateLabel([]string{"OK", "NOTICE"}),
 		}
 
 	case 1:
@@ -140,8 +143,8 @@ func newClient(conn *websocket.Conn, errChan chan error) *client {
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
-			generateRequest:  randomReqRequest,
-			validateResponse: validateLabel([]string{"EOSE", "CLOSED", "EVENT"}),
+			generateRequest:  quickReqRequest,
+			validateResponse: validateLabel([]string{"EOSE", "CLOSED", "EVENT", "NOTICE"}),
 		}
 
 	default:
@@ -149,8 +152,8 @@ func newClient(conn *websocket.Conn, errChan chan error) *client {
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
-			generateRequest:  randomCountRequest,
-			validateResponse: validateLabel([]string{"CLOSED", "COUNT"}),
+			generateRequest:  quickCountRequest,
+			validateResponse: validateLabel([]string{"CLOSED", "COUNT", "NOTICE"}),
 		}
 	}
 }
@@ -204,10 +207,7 @@ func clientMadness(
 	}
 }
 
-func (c *client) write(
-	ctx context.Context,
-	cancel context.CancelFunc) {
-
+func (c *client) write(ctx context.Context, cancel context.CancelFunc) {
 	pingTicker := time.NewTicker(rely.DefaultPingPeriod)
 	writeTicker := time.NewTicker(time.Second)
 
@@ -229,23 +229,25 @@ func (c *client) write(
 				return
 			}
 
-			data, err := c.generateRequest()
-			if err != nil {
-				c.errChan <- err
-				return
-			}
+			data := c.generateRequest()
+			size := int64(len(data))
 
 			c.conn.SetWriteDeadline(time.Now().Add(rely.DefaultWriteWait))
-			if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			err := c.conn.WriteMessage(websocket.TextMessage, data)
+			if err != nil {
 				if IsBadError(err) {
 					c.errChan <- fmt.Errorf("failed to write: %w", err)
 				}
 				return
 			}
 
+			nostrRequests.Add(1)
+			dataSent.Add(size)
+
 		case <-pingTicker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(rely.DefaultWriteWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			err := c.conn.WriteMessage(websocket.PingMessage, nil)
+			if err != nil {
 				if IsBadError(err) {
 					c.errChan <- fmt.Errorf("failed to ping: %w", err)
 				}
@@ -255,10 +257,7 @@ func (c *client) write(
 	}
 }
 
-func (c *client) read(
-	ctx context.Context,
-	cancel context.CancelFunc) {
-
+func (c *client) read(ctx context.Context, cancel context.CancelFunc) {
 	defer func() {
 		cancel()
 		c.conn.Close()
@@ -274,7 +273,7 @@ func (c *client) read(
 			return
 
 		default:
-			_, data, err := c.conn.ReadMessage()
+			_, reader, err := c.conn.NextReader()
 			if err != nil {
 				if IsBadError(err) {
 					c.errChan <- fmt.Errorf("failed to read: %w", err)
@@ -282,7 +281,8 @@ func (c *client) read(
 				return
 			}
 
-			if err := c.validateResponse(data); err != nil {
+			decoder := json.NewDecoder(reader)
+			if err := c.validateResponse(decoder); err != nil {
 				c.errChan <- err
 				return
 			}
@@ -290,8 +290,40 @@ func (c *client) read(
 	}
 }
 
+func validateLabel(labels []string) func(d *json.Decoder) error {
+	return func(d *json.Decoder) error {
+		label, err := parseLabel(d)
+		if err != nil {
+			return err
+		}
+
+		if !slices.Contains(labels, label) {
+			return fmt.Errorf("label is not among the expected labels %v: %s", labels, label)
+		}
+		return nil
+	}
+}
+
+func parseLabel(d *json.Decoder) (string, error) {
+	token, err := d.Token()
+	if err != nil {
+		return "", fmt.Errorf("expected start of array '[', got: %w", err)
+	}
+
+	if token != json.Delim('[') {
+		return "", fmt.Errorf("expected start of array '[', got: %v", token)
+	}
+
+	var label string
+	if err := d.Decode(&label); err != nil {
+		return "", fmt.Errorf("failed to read label: %w", err)
+	}
+
+	return label, nil
+}
+
 func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 18
+	const statsLines = 19
 	var first = true
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -313,12 +345,13 @@ func displayStats(ctx context.Context, r *rely.Relay) {
 			fmt.Println("---------------- test -----------------")
 			fmt.Printf("test time: %v\n", time.Since(start))
 			fmt.Printf("test seed: %v\n", seed)
+			fmt.Println("---------------------------------------")
 			fmt.Printf("total http requests: %d\n", httpRequests.Load())
+			fmt.Printf("total data sent: %.2f MB \n", float64(dataSent.Load())/(1024*1024))
+			fmt.Printf("total nostr requests: %d\n", nostrRequests.Load())
+			fmt.Printf("processed nostr requests: %d\n", processed.Load())
 			fmt.Printf("abnormal closures: %d\n", abnormalClosures.Load())
 			fmt.Printf("total clients: %d\n", clients.Load())
-			fmt.Printf("processed events: %d\n", events.Load())
-			fmt.Printf("processed reqs: %d\n", reqs.Load())
-			fmt.Printf("processed counts: %d\n", counts.Load())
 			r.PrintStats()
 			first = false
 		}

@@ -1,158 +1,192 @@
 package tests
 
 import (
-	"encoding/json"
 	"fmt"
-	"slices"
+	"math/rand/v2"
 	"testing"
+	"time"
+
+	"github.com/goccy/go-json"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/pippellia-btc/rely"
 )
 
-func randomeventRequest() ([]byte, error) {
-	request := []any{"EVENT", randomEvent()}
-	data, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate event request: %w", err)
+const (
+	randomSamples            int     = 1000
+	unsignedEventProbability float32 = 0.05
+)
+
+var (
+	// Manually change the seed to reproduce a specific situation / error
+	seed = uint64(time.Now().Unix())
+	rg   = rand.New(rand.NewPCG(0, seed))
+
+	eventTemplates = make([][]byte, randomSamples)
+	reqTemplates   = make([][]byte, randomSamples)
+	countTemplates = make([][]byte, randomSamples)
+)
+
+func init() {
+	for i := range randomSamples {
+		reqTemplates[i] = randomReqRequest()
+		eventTemplates[i] = randomEventRequest()
+		countTemplates[i] = randomCountRequest()
 	}
-	return data, nil
 }
 
-func randomReqRequest() ([]byte, error) {
-	ID := randomString(rg.IntN(70))
-	request := []any{"REQ", ID}
+func quickEventRequest() []byte {
+	i := rg.IntN(randomSamples)
+	template := eventTemplates[i]
+	event := make([]byte, len(template))
+	copy(event, template)
 
-	filters := rg.IntN(5)
-	for range filters {
-		request = append(request, randomFilter())
+	if rg.Float32() < unsignedEventProbability {
+		// this will inevitably invalidate the signature
+		modifyBytes(event, 10)
 	}
-
-	data, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate event request: %w", err)
-	}
-	return data, nil
+	return event
 }
 
-func randomCountRequest() ([]byte, error) {
-	ID := randomString(rg.IntN(70))
-	request := []any{"COUNT", ID}
+func quickReqRequest() []byte {
+	i := rg.IntN(randomSamples)
+	template := reqTemplates[i]
+	req := make([]byte, len(template))
+	copy(req, template)
+	modifyBytes(req, 10)
+	return req
+}
 
-	filters := rg.IntN(5)
-	for range filters {
-		request = append(request, randomFilter())
+func quickCountRequest() []byte {
+	i := rg.IntN(randomSamples)
+	template := countTemplates[i]
+	count := make([]byte, len(template))
+	copy(count, template)
+	modifyBytes(count, 10)
+	return count
+}
+
+func modifyBytes(buf []byte, locations int) {
+	l := len(buf)
+	if l == 0 {
+		return
 	}
 
-	data, err := json.Marshal(request)
+	for range locations {
+		idx := rg.IntN(l)
+		buf[idx] = byte(rg.IntN(256))
+	}
+}
+
+func randomEventRequest() []byte {
+	event := []any{"EVENT", randomEvent()}
+	data, err := json.Marshal(event)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate event request: %w", err)
+		panic(fmt.Errorf("failed to marshal event %v: %w", event, err))
 	}
-	return data, nil
+	return data
+}
+
+func randomReqRequest() []byte {
+	ID := randomString()
+	req := []any{"REQ", ID}
+
+	filters := rg.IntN(10)
+	for range filters {
+		req = append(req, randomFilter())
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal req %v: %w", req, err))
+	}
+	return data
+}
+
+func randomCountRequest() []byte {
+	ID := randomString()
+	count := []any{"COUNT", ID}
+
+	filters := rg.IntN(10)
+	for range filters {
+		count = append(count, randomFilter())
+	}
+
+	data, err := json.Marshal(count)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal count %v: %w", count, err))
+	}
+	return data
 }
 
 func randomEvent() nostr.Event {
 	event := nostr.Event{
 		CreatedAt: nostr.Timestamp(rg.Int64()),
 		Kind:      rg.Int(),
-		Tags:      randomSlice(100, randomTag),
-	}
-
-	if rg.Float32() < clientFailProbability {
-		// return unsigned event
-		return event
+		Tags:      randomSlice(randomTag),
+		Content:   randomString(),
 	}
 
 	sk := nostr.GeneratePrivateKey()
 	if err := event.Sign(sk); err != nil {
-		return nostr.Event{}
+		panic(fmt.Errorf("failed to sign event: %w", err))
 	}
 	return event
 }
 
 func randomFilter() nostr.Filter {
-	since := nostr.Timestamp(rg.Int64())
-	until := nostr.Timestamp(rg.Int64())
-
 	return nostr.Filter{
-		IDs:     randomSlice(100, randomString64),
-		Authors: randomSlice(100, randomString64),
-		Kinds:   randomSlice(100, rg.Int),
-		Tags:    randomTagMap(100),
-		Since:   &since,
-		Until:   &until,
-		Limit:   rg.IntN(1000),
-		Search:  randomString(45),
+		Since:   randomTimestamp(),
+		Until:   randomTimestamp(),
+		IDs:     randomSlice(randomString),
+		Authors: randomSlice(randomString),
+		Kinds:   randomSlice(rg.Int),
+		Tags:    randomTagMap(),
+		Limit:   rg.Int(),
+		Search:  randomString(),
 	}
 }
 
-func randomTagMap(max int) nostr.TagMap {
-	size := rg.IntN(max)
+func randomTagMap() nostr.TagMap {
+	size := rg.IntN(100)
 	m := make(nostr.TagMap, size)
 	for range size {
-		m[randomString(3)] = randomTag()
+		m[randomString()] = randomTag()
 	}
 	return m
 }
 
-func randomSlice[T any](max int, genFunc func() T) []T {
-	n := rg.IntN(max)
+func randomSlice[T any](genFunc func() T) []T {
+	n := rg.IntN(100)
 	slice := make([]T, n)
-	for i := range slice {
+	for i := range n {
 		slice[i] = genFunc()
 	}
 	return slice
 }
 
 func randomTag() nostr.Tag {
-	l := rg.IntN(8)
+	l := rg.IntN(15)
 	tag := make(nostr.Tag, l)
 	for i := range l {
-		length := rg.IntN(10)
-		tag[i] = randomString(length)
+		tag[i] = randomString()
 	}
 	return tag
 }
 
 const symbols = `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789`
 
-func randomString(l int) string {
-	b := make([]byte, l)
-	for i := range b {
-		b[i] = symbols[rg.IntN(len(symbols))]
+func randomString() string {
+	l := rg.IntN(70)
+	s := make([]byte, l)
+	for i := range l {
+		s[i] = symbols[rg.IntN(len(symbols))]
 	}
-	return string(b)
+	return string(s)
 }
 
-func randomString64() string { return randomString(64) }
-
-func validateLabel(labels []string) func([]byte) error {
-	return func(data []byte) error {
-		label, err := parseLabel(data)
-		if err != nil {
-			return fmt.Errorf("%w: data '%v'", err, string(data))
-		}
-
-		if !slices.Contains(labels, label) {
-			return fmt.Errorf("label is not among the expected labels %v: data %v", labels, string(data))
-		}
-
-		return nil
-	}
-}
-
-func parseLabel(data []byte) (string, error) {
-	var array []json.RawMessage
-	if err := json.Unmarshal(data, &array); err != nil {
-		return "", fmt.Errorf("%w: %w", rely.ErrGeneric, err)
-	}
-
-	var label string
-	if err := json.Unmarshal(array[0], &label); err != nil {
-		return "", fmt.Errorf("%w: %w", rely.ErrGeneric, err)
-	}
-
-	return label, nil
+func randomTimestamp() *nostr.Timestamp {
+	timestamp := nostr.Timestamp(rg.Int64())
+	return &timestamp
 }
 
 // fibonacci returns the n-th fibonacci number. It's used to simulate some meaningful work.
