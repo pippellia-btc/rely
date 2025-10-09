@@ -61,7 +61,7 @@ func TestRandom(t *testing.T) {
 		go displayStats(ctx, relay)
 
 		go func() {
-			ctx, cancel := context.WithTimeout(ctx, testDuration-5*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, testDuration-10*time.Second)
 			defer cancel()
 			if err := relay.StartAndServe(ctx, addr); err != nil {
 				errChan <- err
@@ -69,7 +69,7 @@ func TestRandom(t *testing.T) {
 		}()
 
 		go func() {
-			ctx, cancel := context.WithTimeout(ctx, testDuration-10*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, testDuration-20*time.Second)
 			defer cancel()
 			clientMadness(ctx, errChan, addr)
 		}()

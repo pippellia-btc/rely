@@ -228,21 +228,24 @@ func (r *Relay) coordinator(ctx context.Context) {
 			r.OnConnect(client)
 
 		case client := <-r.unregister:
-			delete(r.clients, client)
-			close(client.responses)
-			r.OnDisconnect(client)
-
-			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
-			// on the channel send when many disconnections occur at the same time.
-			n := int64(len(r.unregister))
-			for range n {
-				client = <-r.unregister
+			if _, ok := r.clients[client]; ok {
 				delete(r.clients, client)
 				close(client.responses)
+				r.clientsCount.Add(-1)
 				r.OnDisconnect(client)
 			}
 
-			r.clientsCount.Add(-1 - n)
+			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
+			// on the channel send when many disconnections occur at the same time.
+			for range len(r.unregister) {
+				client = <-r.unregister
+				if _, ok := r.clients[client]; ok {
+					delete(r.clients, client)
+					close(client.responses)
+					r.clientsCount.Add(-1)
+					r.OnDisconnect(client)
+				}
+			}
 
 		case event := <-r.broadcast:
 			for client := range r.clients {
