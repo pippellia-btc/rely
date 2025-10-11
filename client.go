@@ -142,7 +142,7 @@ func (c *client) read() {
 	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait)); return nil })
 
 	for {
-		if invalidMessages >= 3 {
+		if invalidMessages >= 5 {
 			return
 		}
 
@@ -172,6 +172,7 @@ func (c *client) read() {
 		case "EVENT":
 			event, err := parseEvent(decoder)
 			if err != nil {
+				invalidMessages++
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
@@ -189,6 +190,7 @@ func (c *client) read() {
 		case "REQ":
 			req, err := parseReq(decoder)
 			if err != nil {
+				invalidMessages++
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
@@ -211,6 +213,7 @@ func (c *client) read() {
 		case "COUNT":
 			count, err := parseCount(decoder)
 			if err != nil {
+				invalidMessages++
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
@@ -233,6 +236,7 @@ func (c *client) read() {
 		case "CLOSE":
 			close, err := parseClose(decoder)
 			if err != nil {
+				invalidMessages++
 				c.send(noticeResponse{Message: err.Error()})
 				continue
 			}
@@ -242,6 +246,7 @@ func (c *client) read() {
 		case "AUTH":
 			auth, err := parseAuth(decoder)
 			if err != nil {
+				invalidMessages++
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
@@ -256,6 +261,7 @@ func (c *client) read() {
 			c.relay.OnAuth(c)
 
 		default:
+			invalidMessages++
 			c.send(noticeResponse{Message: ErrUnsupportedType.Error()})
 		}
 	}
