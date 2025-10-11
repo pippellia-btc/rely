@@ -56,9 +56,10 @@ type client struct {
 	subscriptions Subscriptions
 
 	relay     *Relay
-	responses chan response
 	conn      *websocket.Conn
+	responses chan response
 
+	done             chan struct{}
 	isUnregistering  atomic.Bool
 	droppedResponses atomic.Int64
 }
@@ -88,6 +89,7 @@ func (c *client) SendAuth() {
 
 func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
+		close(c.done)
 		c.relay.unregister <- c
 	}
 }
@@ -278,12 +280,19 @@ func (c *client) write() {
 	}()
 
 	for {
+		// Fast path disconnection.
+		// The select down the line can take a few loops before the disconnection
+		// is triggered, since if multiple cases are available, one is choosen at random.
 		if c.isUnregistering.Load() {
 			c.writeNormalClosure()
 			return
 		}
 
 		select {
+		case <-c.done:
+			c.writeNormalClosure()
+			return
+
 		case response := <-c.responses:
 			c.setWriteDeadline()
 			if err := c.conn.WriteJSON(response); err != nil {

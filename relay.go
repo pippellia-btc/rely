@@ -207,7 +207,7 @@ func (r *Relay) Start(ctx context.Context) {
 //
 // This is useful only when you manually call [Relay.Start] and need to wait for a
 // graceful shutdown before the program exits.
-// The shutdown process is initiated by cancelling the context passed to Start().
+// The shutdown process is initiated by cancelling the context passed to [Relay.Start].
 func (r *Relay) Wait() {
 	r.wg.Wait()
 }
@@ -271,11 +271,12 @@ func (r *Relay) close() {
 	// So, we first remove all clients not in the unregistering queue, which guarantees
 	// that what remains is in the aforementioned queue, which will be drained later.
 	// Doing the opposite won't work because clients can end up in the unregistering queue
-	// on their own after we drain it the first time.
+	// on their own after we drain it.
 
 	for client := range r.clients {
 		if client.isUnregistering.CompareAndSwap(false, true) {
 			delete(r.clients, client)
+			close(client.done)
 			r.clientsCount.Add(-1)
 		}
 	}
@@ -405,6 +406,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		relay:     r,
 		conn:      conn,
 		responses: make(chan response, r.responseLimit),
+		done:      make(chan struct{}),
 	}
 
 	select {

@@ -26,8 +26,7 @@ type auther struct {
 	mu        sync.RWMutex
 	pubkey    string
 	challenge string
-
-	domain string
+	domain    string
 }
 
 func (a *auther) SetPubkey(pubkey string) {
