@@ -266,22 +266,20 @@ func (c *client) read() {
 func (c *client) write() {
 	ticker := time.NewTicker(c.relay.pingPeriod)
 	defer func() {
-		ticker.Stop()
 		c.conn.Close()
+		ticker.Stop()
 		c.relay.wg.Done()
 	}()
 
 	for {
+		if c.isUnregistering.Load() {
+			c.writeNormalClosure()
+			return
+		}
+
 		select {
-		case response, ok := <-c.responses:
-			c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
-
-			if !ok {
-				// the relay has closed the channel
-				c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-				return
-			}
-
+		case response := <-c.responses:
+			c.setWriteDeadline()
 			if err := c.conn.WriteJSON(response); err != nil {
 				if isUnexpectedClose(err) {
 					log.Printf("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
@@ -290,8 +288,7 @@ func (c *client) write() {
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			if err := c.writePing(); err != nil {
 				if isUnexpectedClose(err) {
 					log.Printf("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
 				}
@@ -312,4 +309,24 @@ func (c *client) send(r response) {
 		c.droppedResponses.Add(1)
 		c.relay.OnGreedyClient(c)
 	}
+}
+
+func (c *client) setWriteDeadline() {
+	c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
+}
+
+func (c *client) writeNormalClosure() error {
+	return c.conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(c.relay.writeWait),
+	)
+}
+
+func (c *client) writePing() error {
+	return c.conn.WriteControl(
+		websocket.PingMessage,
+		nil,
+		time.Now().Add(c.relay.writeWait),
+	)
 }

@@ -32,10 +32,13 @@ var (
 )
 
 const (
-	testDuration                time.Duration = 500 * time.Second
-	relayFailProbability        float32       = 0.05
-	relayDisconnectProbability  float32       = 0.01
-	clientDisconnectProbability float32       = 0.01
+	testDuration   time.Duration = 500 * time.Second
+	relayDuration  time.Duration = testDuration * 98 / 100
+	attackDuration time.Duration = testDuration * 96 / 100
+
+	relayFailProbability        float32 = 0.05
+	relayDisconnectProbability  float32 = 0.01
+	clientDisconnectProbability float32 = 0.01
 )
 
 func TestRandom(t *testing.T) {
@@ -61,7 +64,7 @@ func TestRandom(t *testing.T) {
 		go displayStats(ctx, relay)
 
 		go func() {
-			ctx, cancel := context.WithTimeout(ctx, testDuration-10*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, relayDuration)
 			defer cancel()
 			if err := relay.StartAndServe(ctx, addr); err != nil {
 				errChan <- err
@@ -69,7 +72,7 @@ func TestRandom(t *testing.T) {
 		}()
 
 		go func() {
-			ctx, cancel := context.WithTimeout(ctx, testDuration-20*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, attackDuration)
 			defer cancel()
 			clientMadness(ctx, errChan, addr)
 		}()

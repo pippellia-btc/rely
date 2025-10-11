@@ -230,7 +230,6 @@ func (r *Relay) coordinator(ctx context.Context) {
 		case client := <-r.unregister:
 			if _, ok := r.clients[client]; ok {
 				delete(r.clients, client)
-				close(client.responses)
 				r.clientsCount.Add(-1)
 				r.OnDisconnect(client)
 			}
@@ -241,7 +240,6 @@ func (r *Relay) coordinator(ctx context.Context) {
 				client = <-r.unregister
 				if _, ok := r.clients[client]; ok {
 					delete(r.clients, client)
-					close(client.responses)
 					r.clientsCount.Add(-1)
 					r.OnDisconnect(client)
 				}
@@ -278,7 +276,6 @@ func (r *Relay) close() {
 	for client := range r.clients {
 		if client.isUnregistering.CompareAndSwap(false, true) {
 			delete(r.clients, client)
-			close(client.responses)
 			r.clientsCount.Add(-1)
 		}
 	}
@@ -287,7 +284,6 @@ func (r *Relay) close() {
 		select {
 		case client := <-r.unregister:
 			delete(r.clients, client)
-			close(client.responses)
 			r.clientsCount.Add(-1)
 		default:
 			return
@@ -405,10 +401,10 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 
 	client := &client{
 		ip:        IP(req),
+		auther:    auther{domain: r.domain},
 		relay:     r,
 		conn:      conn,
 		responses: make(chan response, r.responseLimit),
-		auther:    auther{domain: r.domain},
 	}
 
 	select {
