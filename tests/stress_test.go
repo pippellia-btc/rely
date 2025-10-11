@@ -32,9 +32,10 @@ var (
 )
 
 const (
-	testDuration   time.Duration = 500 * time.Second
-	relayDuration  time.Duration = testDuration * 98 / 100
-	attackDuration time.Duration = testDuration * 96 / 100
+	testDuration        time.Duration = 500 * time.Second
+	relayDuration       time.Duration = testDuration * 98 / 100
+	attackDuration      time.Duration = testDuration * 96 / 100
+	connectionFrequency time.Duration = 2 * time.Millisecond
 
 	relayFailProbability        float32 = 0.05
 	relayDisconnectProbability  float32 = 0.01
@@ -178,7 +179,7 @@ func clientMadness(
 		URL = "ws://" + URL
 	}
 
-	ticker := time.NewTicker(10 * time.Millisecond)
+	ticker := time.NewTicker(connectionFrequency)
 	defer ticker.Stop()
 
 	for {
