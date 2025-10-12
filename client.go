@@ -48,8 +48,22 @@ type Client interface {
 }
 
 // client is a middleman between the websocket connection and the [Relay].
-// It's responsible for parsing and validating the requests, and for writing the [response]s
-// to all matching [Subscription]s.
+// It's responsible for parsing and validating the [request]s, and for writing the [response]s.
+//
+// Lifecycle:
+// The client lifecycle starts in the [Relay.ServeWS] where [client.read] and [client.write] are spawned.
+// The shutdown cycle is as follows:
+// - [client.read] returns
+// - [client.Disconnect] is called
+// - [client.IsUnregistering] is set to true, [client.done] is closed
+// - [client.write] returns, with a [websocket.CloseNormalClosure]
+// - [client.conn] is closed
+// - [client.read] returns
+// - ...
+//
+// There are two entrypoints to trigger the shutdown cycle:
+// - read errors in the [client.read] (automatic)
+// - the call to [client.Disconnect] (automatic or manual)
 type client struct {
 	ip            string
 	auther        auther
