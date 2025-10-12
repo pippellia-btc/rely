@@ -23,9 +23,16 @@ var (
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
 )
 
+type UID string
+
+func combine(id1, id2 string) UID { return UID(id1 + ":" + id2) }
+
 type request interface {
-	// ID returns a unique identifier for the request within the scope of its client.
-	// IDs are not globally unique across different clients.
+	// UID is a gloally unique identifier for the request.
+	// It follows the convention: UID = combine(client.ID(), request.ID())
+	UID() UID
+
+	// ID is a unique identifier within the scope of its client.
 	ID() string
 
 	// IsExpired reports whether the request should be skipped,
@@ -38,6 +45,7 @@ type eventRequest struct {
 	Event  *nostr.Event
 }
 
+func (e *eventRequest) UID() UID        { return combine(e.client.id, e.Event.ID) }
 func (e *eventRequest) ID() string      { return e.Event.ID }
 func (e *eventRequest) IsExpired() bool { return e.client.isUnregistering.Load() }
 
@@ -49,12 +57,18 @@ type reqRequest struct {
 	Filters nostr.Filters
 }
 
+func (r *reqRequest) UID() UID        { return combine(r.client.id, r.id) }
 func (r *reqRequest) ID() string      { return r.id }
 func (r *reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
 
 // Subscription creates the subscription associated with the [reqRequest].
 func (r *reqRequest) Subscription() Subscription {
-	sub := Subscription{typ: "REQ", ID: r.id, Filters: r.Filters}
+	sub := Subscription{
+		ID:      r.id,
+		typ:     "REQ",
+		Filters: r.Filters,
+		client:  r.client,
+	}
 	r.ctx, sub.cancel = context.WithCancel(context.Background())
 	return sub
 }
@@ -67,18 +81,24 @@ type countRequest struct {
 	Filters nostr.Filters
 }
 
+func (c *countRequest) UID() UID        { return combine(c.client.id, c.id) }
 func (c *countRequest) ID() string      { return c.id }
 func (c *countRequest) IsExpired() bool { return c.ctx.Err() != nil || c.client.isUnregistering.Load() }
 
 // Subscription creates the subscription associated with the [countRequest].
 func (c *countRequest) Subscription() Subscription {
-	sub := Subscription{typ: "COUNT", ID: c.id, Filters: c.Filters}
+	sub := Subscription{
+		ID:      c.id,
+		typ:     "COUNT",
+		Filters: c.Filters,
+		client:  c.client,
+	}
 	c.ctx, sub.cancel = context.WithCancel(context.Background())
 	return sub
 }
 
 type closeRequest struct {
-	subID string
+	ID string
 }
 
 type authRequest struct {
@@ -205,12 +225,12 @@ func parseCount(d *json.Decoder) (*countRequest, *requestError) {
 
 func parseClose(d *json.Decoder) (*closeRequest, *requestError) {
 	close := &closeRequest{}
-	if err := d.Decode(&close.subID); err != nil {
+	if err := d.Decode(&close.ID); err != nil {
 		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
 	}
 
-	if len(close.subID) < 1 || len(close.subID) > 64 {
-		return nil, &requestError{ID: close.subID, Err: ErrInvalidSubscriptionID}
+	if len(close.ID) < 1 || len(close.ID) > 64 {
+		return nil, &requestError{ID: close.ID, Err: ErrInvalidSubscriptionID}
 	}
 	return close, nil
 }

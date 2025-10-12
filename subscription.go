@@ -13,7 +13,10 @@ type Subscription struct {
 	Filters nostr.Filters
 
 	cancel context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
+	client *client
 }
+
+func (s Subscription) UID() UID { return combine(s.client.id, s.ID) }
 
 type Subscriptions struct {
 	mu   sync.RWMutex

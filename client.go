@@ -15,6 +15,10 @@ import (
 
 // The Client where the request comes from. All methods are safe for concurrent use.
 type Client interface {
+	// ID is the unique identified for the client. Useful to tie its identity to
+	// external statistics or resources.
+	ID() string
+
 	// IP address of the client.
 	IP() string
 
@@ -65,6 +69,7 @@ type Client interface {
 // - read errors in the [client.read] (automatic)
 // - the call to [client.Disconnect] (automatic or manual)
 type client struct {
+	id            string
 	ip            string
 	auther        auther
 	subscriptions Subscriptions
@@ -78,6 +83,7 @@ type client struct {
 	droppedResponses atomic.Int64
 }
 
+func (c *client) ID() string                    { return c.id }
 func (c *client) IP() string                    { return c.ip }
 func (c *client) Pubkey() string                { return c.auther.Pubkey() }
 func (c *client) Subscriptions() []Subscription { return c.subscriptions.List() }
@@ -257,7 +263,7 @@ func (c *client) read() {
 				continue
 			}
 
-			c.subscriptions.Remove(close.subID)
+			c.subscriptions.Remove(close.ID)
 
 		case "AUTH":
 			auth, err := parseAuth(decoder)

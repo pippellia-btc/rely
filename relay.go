@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,7 @@ var (
 )
 
 type Relay struct {
+	nextUID              atomic.Int64
 	clients              map[*client]struct{} // set of connected clients
 	clientsCount         atomic.Int64         // number of connected clients
 	lastRegistrationFail atomic.Int64         // last time a client registration failed
@@ -89,6 +91,9 @@ type Stats interface {
 	// Clients returns the number of active clients connected to the relay.
 	Clients() int
 
+	// TotalConnections returns the total number of connections since the relay startup.
+	TotalConnections() int
+
 	// QueueLoad returns the ratio of queued requests to total capacity,
 	// represented as a float between 0 and 1.
 	QueueLoad() float64
@@ -99,8 +104,11 @@ type Stats interface {
 }
 
 func (r *Relay) Clients() int                    { return int(r.clientsCount.Load()) }
+func (r *Relay) TotalConnections() int           { return int(r.nextUID.Load()) }
 func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
 func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
+
+func (r *Relay) assignID() string { return strconv.FormatInt(r.nextUID.Add(1), 10) }
 
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
 // Customize its structure with functional options (e.g., [WithDomain], [WithQueueCapacity]).
@@ -143,7 +151,7 @@ func (r *Relay) enqueue(req request) *requestError {
 		return nil
 	default:
 		if r.logPressure {
-			log.Printf("failed to enqueue request with ID %s: %v", req.ID(), ErrOverloaded)
+			log.Printf("failed to enqueue request %s: %v", req.UID(), ErrOverloaded)
 		}
 		return &requestError{ID: req.ID(), Err: ErrOverloaded}
 	}
@@ -401,6 +409,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	client := &client{
+		id:        r.assignID(),
 		ip:        IP(req),
 		auther:    auther{domain: r.domain},
 		relay:     r,

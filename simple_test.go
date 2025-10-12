@@ -327,7 +327,7 @@ func TestParseClose(t *testing.T) {
 		{
 			name:     "valid",
 			data:     []byte(`["CLOSE", "abcd"]`),
-			expected: &closeRequest{subID: "abcd"},
+			expected: &closeRequest{ID: "abcd"},
 		},
 	}
 
