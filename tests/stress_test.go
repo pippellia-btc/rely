@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"os/exec"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -17,7 +20,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
-	. "github.com/pippellia-btc/rely"
 )
 
 var (
@@ -32,8 +34,8 @@ var (
 
 const (
 	testDuration        time.Duration = 500 * time.Second
-	relayDuration       time.Duration = testDuration * 98 / 100
-	attackDuration      time.Duration = testDuration * 96 / 100
+	relayDuration       time.Duration = testDuration * 98 / 10
+	attackDuration      time.Duration = testDuration * 96 / 10
 	connectionFrequency time.Duration = 2 * time.Millisecond
 
 	relayFailProbability        float32 = 0.05
@@ -50,8 +52,8 @@ func TestRandom(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 		defer cancel()
 
-		relay := NewRelay(
-			WithoutPressureLogs(),
+		relay := rely.NewRelay(
+			rely.WithoutPressureLogs(),
 		)
 
 		relay.On.Connect = dummyOnConnect
@@ -60,11 +62,11 @@ func TestRandom(t *testing.T) {
 		relay.On.Count = dummyOnCount
 
 		go func() { http.ListenAndServe(":6060", nil) }()
-		go displayStats(ctx, relay)
 
 		go func() {
 			ctx, cancel := context.WithTimeout(ctx, relayDuration)
 			defer cancel()
+			go displayStats(ctx, relay)
 			if err := relay.StartAndServe(ctx, addr); err != nil {
 				errChan <- err
 			}
@@ -81,7 +83,9 @@ func TestRandom(t *testing.T) {
 			t.Fatal(err)
 
 		case <-ctx.Done():
-			// test passed
+			// test passed, print stats last time
+			clearScreen()
+			printStats(relay)
 		}
 	})
 }
@@ -328,10 +332,9 @@ func parseLabel(d *json.Decoder) (string, error) {
 	return label, nil
 }
 
-func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 23
-	var first = true
+const statsLines = 23
 
+func displayStats(ctx context.Context, r *rely.Relay) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -341,27 +344,39 @@ func displayStats(ctx context.Context, r *rely.Relay) {
 			return
 
 		case <-ticker.C:
-
-			if !first {
-				// clear stats
-				fmt.Printf("\033[%dA", statsLines)
-				fmt.Print("\033[J")
-			}
-
-			fmt.Println("---------------- test -----------------")
-			fmt.Printf("test time: %v\n", time.Since(start))
-			fmt.Printf("test seed: %v\n", seed)
-			fmt.Println("---------------------------------------")
-			fmt.Printf("total http requests: %d\n", httpRequests.Load())
-			fmt.Printf("total data sent: %.2f MB \n", float64(dataSent.Load())/(1024*1024))
-			fmt.Printf("total nostr requests: %d\n", nostrRequests.Load())
-			fmt.Printf("processed nostr requests: %d\n", processed.Load())
-			fmt.Printf("abnormal closures: %d\n", abnormalClosures.Load())
-			fmt.Printf("total clients: %d\n", clients.Load())
-			r.PrintStats()
-			first = false
+			clearScreen()
+			printStats(r)
 		}
 	}
+}
+
+func printStats(r *rely.Relay) {
+	fmt.Println("---------------- test -----------------")
+	fmt.Printf("test time: %v\n", time.Since(start))
+	fmt.Printf("test seed: %v\n", seed)
+	fmt.Println("---------------------------------------")
+	fmt.Printf("total http requests: %d\n", httpRequests.Load())
+	fmt.Printf("total data sent: %.2f MB \n", float64(dataSent.Load())/(1024*1024))
+	fmt.Printf("total nostr requests: %d\n", nostrRequests.Load())
+	fmt.Printf("processed nostr requests: %d\n", processed.Load())
+	fmt.Printf("abnormal closures: %d\n", abnormalClosures.Load())
+	fmt.Printf("total clients: %d\n", clients.Load())
+	r.PrintStats()
+}
+
+func clearScreen() {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "cls")
+	default:
+		// Linux, macOS, etc..
+		cmd = exec.Command("clear")
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Run()
 }
 
 func IsBadError(err error) bool {
