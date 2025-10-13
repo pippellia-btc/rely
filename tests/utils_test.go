@@ -42,7 +42,7 @@ func quickEventRequest() []byte {
 
 	if rg.Float32() < unsignedEventProbability {
 		// this will inevitably invalidate the signature
-		modifyBytes(event, 10)
+		modifyBytes(event, 5)
 	}
 	return event
 }
@@ -52,7 +52,7 @@ func quickReqRequest() []byte {
 	template := reqTemplates[i]
 	req := make([]byte, len(template))
 	copy(req, template)
-	modifyBytes(req, 10)
+	modifyBytes(req, 5)
 	return req
 }
 
@@ -61,7 +61,7 @@ func quickCountRequest() []byte {
 	template := countTemplates[i]
 	count := make([]byte, len(template))
 	copy(count, template)
-	modifyBytes(count, 10)
+	modifyBytes(count, 5)
 	return count
 }
 
