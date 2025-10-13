@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,22 +20,18 @@ var (
 
 type Relay struct {
 	nextID               atomic.Int64
-	clients              map[*client]UIDs
-	clientsCount         atomic.Int64
 	lastRegistrationFail atomic.Int64
+	wg                   sync.WaitGroup // needed for graceful shutdown
 
-	subscriptions      map[UID]Subscription
-	subscriptionsCount atomic.Int64
-	filtersCount       atomic.Int64
-	wg                 sync.WaitGroup // needed for graceful shutdown
+	dispatcher *dispatcher
 
 	registerClient    chan *client
 	unregisterClient  chan *client
 	openSubscription  chan Subscription
 	closeSubscription chan UID
+	broadcastEvent    chan *nostr.Event
 
-	broadcastEvent chan *nostr.Event // used to broadcast events to all matching clients
-	queue          chan request      // the queue for EVENTs, REQs and COUNTs
+	queue chan request // the queue for EVENTs, REQs and COUNTs
 
 	RelayFunctions
 	systemOptions
@@ -92,39 +87,6 @@ func newRelayFunctions() RelayFunctions {
 	}
 }
 
-// Stats exposes relay statistics useful for rejecting connections during peaks of activity.
-// All methods are safe for concurrent use.
-type Stats interface {
-	// Clients returns the number of active clients connected to the relay.
-	Clients() int
-
-	// Subscriptions returns the number of active subscriptions.
-	Subscriptions() int
-
-	// Filters returns the number of active filters of REQ subscriptions.
-	Filters() int
-
-	// TotalConnections returns the total number of connections since the relay startup.
-	TotalConnections() int
-
-	// QueueLoad returns the ratio of queued requests to total capacity,
-	// represented as a float between 0 and 1.
-	QueueLoad() float64
-
-	// LastRegistrationFail returns the last time a client failed to be added
-	// to the registration queue, which happens during periods of high load.
-	LastRegistrationFail() time.Time
-}
-
-func (r *Relay) Clients() int                    { return int(r.clientsCount.Load()) }
-func (r *Relay) Subscriptions() int              { return int(r.subscriptionsCount.Load()) }
-func (r *Relay) Filters() int                    { return int(r.filtersCount.Load()) }
-func (r *Relay) TotalConnections() int           { return int(r.nextID.Load()) }
-func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
-func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
-
-func (r *Relay) assignID() string { return strconv.FormatInt(r.nextID.Add(1), 10) }
-
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
 // Customize its structure with functional options (e.g., [WithDomain], [WithQueueCapacity]).
 // Customize its behaviour by writing OnEvent, OnReq and other [RelayFunctions].
@@ -138,8 +100,7 @@ func (r *Relay) assignID() string { return strconv.FormatInt(r.nextID.Add(1), 10
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		clients:           make(map[*client]UIDs, 1000),
-		subscriptions:     make(map[UID]Subscription, 3000),
+		dispatcher:        newDispatcher(),
 		registerClient:    make(chan *client, 1000),
 		unregisterClient:  make(chan *client, 1000),
 		openSubscription:  make(chan Subscription, 1000),
@@ -211,21 +172,21 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 // For a proper shutdown process, you have to call [Relay.Wait] before closing your program.
 func (r *Relay) Start(ctx context.Context) {
 	r.wg.Add(2)
-	go r.coordinator(ctx)
-	go r.processor(ctx)
+	go r.dispatchLoop(ctx)
+	go r.processLoop(ctx)
 }
 
 // Wait blocks until the relay has shut down completely.
 //
-// This is useful only when you manually call [Relay.Start] and need to wait for a
-// graceful shutdown before the program exits.
-// The shutdown process is initiated by cancelling the context passed to [Relay.Start].
+// This is useful only when you manually call [Relay.Start] instead of [Relay.StartAndServe]
+// and need to wait for a graceful shutdown before the program exits.
 func (r *Relay) Wait() {
 	r.wg.Wait()
 }
 
-// Coordinate the registration and unregistration of clients, and the broadcasting of events.
-func (r *Relay) coordinator(ctx context.Context) {
+// The dispatchLoop coordinates the registration and unregistration of clients,
+// and the broadcasting of events.
+func (r *Relay) dispatchLoop(ctx context.Context) {
 	defer r.wg.Done()
 
 	for {
@@ -235,97 +196,26 @@ func (r *Relay) coordinator(ctx context.Context) {
 			return
 
 		case client := <-r.registerClient:
-			r.register(client)
+			r.dispatcher.register(client)
 
 		case client := <-r.unregisterClient:
-			r.unregister(client)
+			r.dispatcher.unregister(client)
 
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
 			for range len(r.unregisterClient) {
 				client = <-r.unregisterClient
-				r.unregister(client)
+				r.dispatcher.unregister(client)
 			}
 
 		case sub := <-r.openSubscription:
-			r.open(sub)
+			r.dispatcher.open(sub)
 
 		case subID := <-r.closeSubscription:
-			r.close(subID)
+			r.dispatcher.close(subID)
 
 		case event := <-r.broadcastEvent:
-			r.broadcast(event)
-		}
-	}
-}
-
-func (r *Relay) register(c *client) {
-	// avoid rare case when a subscription is opened before client registration
-	if _, exists := r.clients[c]; !exists {
-		r.clients[c] = make([]UID, 0, 5)
-	}
-	r.clientsCount.Add(1)
-}
-
-func (r *Relay) unregister(c *client) {
-	uids, exists := r.clients[c]
-	if exists {
-		delete(r.clients, c)
-		r.clientsCount.Add(-1)
-
-		for _, uid := range uids {
-			sub := r.subscriptions[uid]
-			sub.cancel()
-			delete(r.subscriptions, uid)
-
-			r.subscriptionsCount.Add(-1)
-			r.filtersCount.Add(-int64(len(sub.Filters)))
-		}
-	}
-}
-
-func (r *Relay) open(new Subscription) {
-	if new.client.isUnregistering.Load() {
-		return
-	}
-
-	uid := new.UID()
-	old, exists := r.subscriptions[uid]
-	if exists {
-		old.cancel()
-		r.subscriptions[uid] = new
-
-		delta := int64(len(new.Filters) - len(old.Filters))
-		r.filtersCount.Add(delta)
-		return
-	}
-
-	r.subscriptions[uid] = new
-	r.clients[new.client] = append(r.clients[new.client], uid)
-
-	r.subscriptionsCount.Add(1)
-	r.filtersCount.Add(int64(len(new.Filters)))
-	// TODO: add to inverted indexes later
-}
-
-func (r *Relay) close(uid UID) {
-	sub, exists := r.subscriptions[uid]
-	if exists {
-		sub.cancel()
-		delete(r.subscriptions, uid)
-		r.clients[sub.client] = remove(r.clients[sub.client], uid)
-
-		r.subscriptionsCount.Add(-1)
-		r.filtersCount.Add(-int64(len(sub.Filters)))
-		// TODO: remove from inverted indexes later
-	}
-}
-
-func (r *Relay) broadcast(e *nostr.Event) {
-	// TODO: implement efficient candidate search with inverted indexes later
-	for _, sub := range r.subscriptions {
-		if sub.typ == "REQ" && sub.Matches(e) {
-			sub.client.send(eventResponse{ID: sub.ID, Event: e})
+			r.dispatcher.broadcast(event)
 		}
 	}
 }
@@ -351,10 +241,10 @@ drainRegister:
 	}
 
 	// Remove clients in the map not in the unregistering queue.
-	for client := range r.clients {
+	for client := range r.dispatcher.clients {
 		if client.isUnregistering.CompareAndSwap(false, true) {
 			close(client.done)
-			r.unregister(client)
+			r.dispatcher.unregister(client)
 		}
 	}
 
@@ -364,8 +254,8 @@ drainUnregister:
 	for {
 		select {
 		case client := <-r.unregisterClient:
-			delete(r.clients, client)
-			r.clientsCount.Add(-1)
+			delete(r.dispatcher.clients, client)
+			r.dispatcher.stats.clients.Add(-1)
 		default:
 			break drainUnregister
 		}
@@ -385,7 +275,7 @@ drainSubscriptions:
 
 // Process the requests in the relay queue with [Relay.maxProcessors] processors,
 // by appliying the user defined [RelayFunctions].
-func (r *Relay) processor(ctx context.Context) {
+func (r *Relay) processLoop(ctx context.Context) {
 	defer r.wg.Done()
 
 	sem := make(chan struct{}, r.maxProcessors)
