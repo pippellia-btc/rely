@@ -19,7 +19,7 @@ func main() {
 	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()
-	relay.OnCount = Count
+	relay.On.Count = Count
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)

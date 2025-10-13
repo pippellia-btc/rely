@@ -27,9 +27,9 @@ func main() {
 		WithDomain("example.com"), // the domain must be set to correctly validate NIP-42
 	)
 
-	relay.OnConnect = func(c Client) { c.SendAuth() }
-	relay.OnAuth = func(c Client) { log.Printf("client authed with pubkey %s", c.Pubkey()) }
-	relay.RejectReq = append(relay.RejectReq, AuthedOnDMs)
+	relay.On.Connect = func(c Client) { c.SendAuth() }
+	relay.On.Auth = func(c Client) { log.Printf("client authed with pubkey %s", c.Pubkey()) }
+	relay.Reject.Req = append(relay.Reject.Req, AuthedOnDMs)
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)

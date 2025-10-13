@@ -25,9 +25,9 @@ func main() {
 		rely.WithClientResponseLimit(100), // decreased from default 1000
 	)
 
-	relay.RejectReq = append(relay.RejectReq, TooGreedy)
-	relay.OnEvent = Save
-	relay.OnReq = Query
+	relay.Reject.Req = append(relay.Reject.Req, TooGreedy)
+	relay.On.Event = Save
+	relay.On.Req = Query
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)

@@ -18,8 +18,8 @@ func main() {
 	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()
-	relay.OnEvent = Save
-	relay.OnReq = Query
+	relay.On.Event = Save
+	relay.On.Req = Query
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)

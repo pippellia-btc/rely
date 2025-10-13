@@ -49,7 +49,7 @@ func main() {
 		WithDomain("example.com"), // required for validating NIP-42 auth
 	)
 
-	relay.RejectConnection = append(relay.RejectConnection, func(_ rely.Stats, r *http.Request) error {
+	relay.Reject.Connection = append(relay.Reject.Connection, func(_ rely.Stats, r *http.Request) error {
 		// rate limiting IPs
 		if limiter.Allow(rely.IP(r), ipRefill) {
 			return nil
@@ -58,9 +58,9 @@ func main() {
 	})
 
 	// send an AUTH challange as soon as the client connects
-	relay.OnConnect = func(c rely.Client) { c.SendAuth() }
+	relay.On.Connect = func(c rely.Client) { c.SendAuth() }
 
-	relay.OnEvent = func(c rely.Client, e *nostr.Event) error {
+	relay.On.Event = func(c rely.Client, e *nostr.Event) error {
 		pubkey := c.Pubkey()
 		if pubkey == "" {
 			return ErrAuthRequired

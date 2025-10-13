@@ -40,7 +40,7 @@ type Client interface {
 	// Disconnect the client, closing its websocket connection with a [websocket.CloseNormalClosure]
 	Disconnect()
 
-	// DroppedResponses returns the total number of responses that were droppedResponses
+	// DroppedResponses returns the total number of responses that were dropped
 	// because the client’s response channel was full. This value is monotonic
 	// and it's useful for implementing backpressure or flow-control strategies.
 	DroppedResponses() int
@@ -111,7 +111,7 @@ func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		close(c.done)
 		c.relay.unregisterClient <- c
-		c.relay.OnDisconnect(c)
+		c.relay.On.Disconnect(c)
 	}
 }
 
@@ -253,7 +253,7 @@ func (c *client) read() {
 
 			c.auther.SetPubkey(auth.PubKey)
 			c.send(okResponse{ID: auth.ID, Saved: true})
-			c.relay.OnAuth(c)
+			c.relay.On.Auth(c)
 
 		default:
 			invalidMessages++
@@ -315,7 +315,7 @@ func (c *client) send(r response) {
 	case c.responses <- r:
 	default:
 		c.droppedResponses.Add(1)
-		c.relay.OnGreedyClient(c)
+		c.relay.When.GreedyClient(c)
 	}
 }
 
@@ -347,9 +347,9 @@ func (c *client) tryOpen(s Subscription) *requestError {
 	}
 }
 
-// rejectEvent wraps the relay RejectEvent functions and makes them accessible to the client.
+// rejectEvent wraps the relay Reject.Event functions and makes them accessible to the client.
 func (c *client) rejectEvent(e *eventRequest) *requestError {
-	for _, reject := range c.relay.RejectEvent {
+	for _, reject := range c.relay.Reject.Event {
 		if err := reject(c, e.Event); err != nil {
 			return &requestError{ID: e.Event.ID, Err: err}
 		}
@@ -357,9 +357,9 @@ func (c *client) rejectEvent(e *eventRequest) *requestError {
 	return nil
 }
 
-// rejectReq wraps the relay RejectReq functions and makes them accessible to the client.
+// rejectReq wraps the relay Reject.Req functions and makes them accessible to the client.
 func (c *client) rejectReq(req *reqRequest) *requestError {
-	for _, reject := range c.relay.RejectReq {
+	for _, reject := range c.relay.Reject.Req {
 		if err := reject(c, req.Filters); err != nil {
 			return &requestError{ID: req.id, Err: err}
 		}
@@ -367,15 +367,15 @@ func (c *client) rejectReq(req *reqRequest) *requestError {
 	return nil
 }
 
-// rejectCount wraps the relay RejectCount functions and makes them accessible to the client.
-// if relay.OnCount has not been set, an error is returned.
+// rejectCount wraps the relay Reject.Count functions and makes them accessible to the client.
+// if relay.On.Count has not been set, an error is returned.
 func (c *client) rejectCount(count *countRequest) *requestError {
-	if c.relay.OnCount == nil {
+	if c.relay.On.Count == nil {
 		// nip-45 is optional
 		return &requestError{ID: count.id, Err: ErrUnsupportedNIP45}
 	}
 
-	for _, reject := range c.relay.RejectCount {
+	for _, reject := range c.relay.Reject.Count {
 		if err := reject(c, count.Filters); err != nil {
 			return &requestError{ID: count.id, Err: err}
 		}

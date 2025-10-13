@@ -33,7 +33,7 @@ func main() {
 		WithMaxProcessors(10),     // increase concurrent processors for faster execution (higher CPU)
 	)
 
-	relay.OnEvent = Process
+	relay.On.Event = Process
 
 	addr := "localhost:3334"
 	log.Printf("running relay on %s", addr)

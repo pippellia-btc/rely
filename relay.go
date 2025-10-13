@@ -30,61 +30,11 @@ type Relay struct {
 	openSubscription  chan Subscription
 	closeSubscription chan UID
 	broadcastEvent    chan *nostr.Event
+	queue             chan request // the queue for EVENTs, REQs and COUNTs
 
-	queue chan request // the queue for EVENTs, REQs and COUNTs
-
-	RelayFunctions
+	Hooks
 	systemOptions
 	websocketOptions
-}
-
-// RelayFunctions consist of two groups of functions that define the behavior of the relay.
-//
-//   - Reject functions:
-//
-//     These are used to conditionally reject incoming data, before they are processed.
-//     Each slice is evaluated in order, and if any function returns an error, the input is rejected.
-//
-//   - On functions:
-//
-//     These define the actions to perform after a certain situation happened.
-//     They allow you to hook into and customize how the relay reacts to connections, auths,
-//     EVENTs, REQs, and COUNTs. If the function returns an error, the appropriate
-//     message is sent to the client (e.g. onEvent -> OK, onReq -> CLOSE).
-//
-// All functions must be thread-safe and must not be modified at runtime.
-type RelayFunctions struct {
-	RejectConnection []func(Stats, *http.Request) error
-	RejectEvent      []func(Client, *nostr.Event) error
-	RejectReq        []func(Client, nostr.Filters) error
-	RejectCount      []func(Client, nostr.Filters) error
-
-	OnEvent func(Client, *nostr.Event) error
-	OnReq   func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
-	OnCount func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
-
-	OnConnect    func(Client)
-	OnDisconnect func(Client)
-	OnAuth       func(Client)
-
-	// OnGreedyClient is called when the client’s response buffer is full,
-	// which happens if the client sends new REQs before reading all responses from previous ones.
-	OnGreedyClient func(Client)
-}
-
-func newRelayFunctions() RelayFunctions {
-	return RelayFunctions{
-		RejectConnection: []func(Stats, *http.Request) error{RegistrationFailWithin(3 * time.Second)},
-		RejectEvent:      []func(Client, *nostr.Event) error{InvalidID, InvalidSignature},
-
-		OnConnect:      func(Client) {},
-		OnDisconnect:   func(Client) {},
-		OnAuth:         func(c Client) {},
-		OnGreedyClient: DisconnectOnDrops(200),
-
-		OnEvent: logEvent,
-		OnReq:   logFilters,
-	}
 }
 
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
@@ -107,11 +57,9 @@ func NewRelay(opts ...Option) *Relay {
 		closeSubscription: make(chan UID, 1000),
 		broadcastEvent:    make(chan *nostr.Event, 1000),
 		queue:             make(chan request, 1000),
-
-		RelayFunctions: newRelayFunctions(),
-
-		systemOptions:    newSystemOptions(),
-		websocketOptions: newWebsocketOptions(),
+		Hooks:             DefaultHooks(),
+		systemOptions:     newSystemOptions(),
+		websocketOptions:  newWebsocketOptions(),
 	}
 
 	for _, opt := range opts {
@@ -120,19 +68,6 @@ func NewRelay(opts ...Option) *Relay {
 
 	r.validate()
 	return r
-}
-
-// Broadcast the event to all clients whose subscriptions match it.
-func (r *Relay) Broadcast(e *nostr.Event) error {
-	select {
-	case r.broadcastEvent <- e:
-		return nil
-	default:
-		if r.logPressure {
-			log.Printf("failed to broadcast event with ID %s: %v", e.ID, ErrOverloaded)
-		}
-		return ErrOverloaded
-	}
 }
 
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
@@ -167,8 +102,8 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 
 // Start the relay in separate goroutines in a non-blocking fashion.
 //
-// The relay will later need to be served using [http.ListenAndServe] or equivalent;
-// see [Relay.StartAndServe] for an example on how to do it.
+// The relay will later need to be served using [http.ListenAndServe] or equivalent.
+// See [Relay.StartAndServe] for an example on how to do it.
 // For a proper shutdown process, you have to call [Relay.Wait] before closing your program.
 func (r *Relay) Start(ctx context.Context) {
 	r.wg.Add(2)
@@ -304,7 +239,7 @@ func (r *Relay) process(request request) {
 	ID := request.ID()
 	switch request := request.(type) {
 	case *eventRequest:
-		err := r.OnEvent(request.client, request.Event)
+		err := r.On.Event(request.client, request.Event)
 		if err != nil {
 			request.client.send(okResponse{ID: ID, Saved: false, Reason: err.Error()})
 			return
@@ -317,7 +252,7 @@ func (r *Relay) process(request request) {
 		budget := request.client.RemainingCapacity()
 		ApplyBudget(budget, request.Filters...)
 
-		events, err := r.OnReq(request.ctx, request.client, request.Filters)
+		events, err := r.On.Req(request.ctx, request.client, request.Filters)
 		if err != nil {
 			if request.ctx.Err() == nil {
 				// error not caused by the user's CLOSE
@@ -334,7 +269,7 @@ func (r *Relay) process(request request) {
 		request.client.send(eoseResponse{ID: ID})
 
 	case *countRequest:
-		count, approx, err := r.OnCount(request.ctx, request.client, request.Filters)
+		count, approx, err := r.On.Count(request.ctx, request.client, request.Filters)
 		if err != nil {
 			if request.ctx.Err() == nil {
 				// error not caused by the user's CLOSE
@@ -347,6 +282,19 @@ func (r *Relay) process(request request) {
 
 		request.client.send(countResponse{ID: ID, Count: count, Approx: approx})
 		r.closeSubscription <- request.UID()
+	}
+}
+
+// Broadcast the event to all clients whose subscriptions match it.
+func (r *Relay) Broadcast(e *nostr.Event) error {
+	select {
+	case r.broadcastEvent <- e:
+		return nil
+	default:
+		if r.logPressure {
+			log.Printf("failed to broadcast event with ID %s: %v", e.ID, ErrOverloaded)
+		}
+		return ErrOverloaded
 	}
 }
 
@@ -368,7 +316,7 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // ServeWS upgrades the http request to a websocket, creates a [client], and registers it with the [Relay].
 // The client will then read and write to the websocket in two separate goroutines, preventing multiple readers/writers.
 func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
-	for _, reject := range r.RejectConnection {
+	for _, reject := range r.Reject.Connection {
 		if err := reject(r, req); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
@@ -396,7 +344,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		r.wg.Add(2)
 		go client.write()
 		go client.read()
-		r.OnConnect(client)
+		r.On.Connect(client)
 
 	default:
 		r.lastRegistrationFail.Store(time.Now().Unix())

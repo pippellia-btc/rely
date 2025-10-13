@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	_ "net/http/pprof"
-	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -55,12 +54,11 @@ func TestRandom(t *testing.T) {
 			WithoutPressureLogs(),
 		)
 
-		relay.OnConnect = dummyOnConnect
-		relay.OnEvent = dummyOnEvent
-		relay.OnReq = dummyOnReq
-		relay.OnCount = dummyOnCount
+		relay.On.Connect = dummyOnConnect
+		relay.On.Event = dummyOnEvent
+		relay.On.Req = dummyOnReq
+		relay.On.Count = dummyOnCount
 
-		runtime.SetMutexProfileFraction(1)
 		go func() { http.ListenAndServe(":6060", nil) }()
 		go displayStats(ctx, relay)
 
@@ -331,7 +329,7 @@ func parseLabel(d *json.Decoder) (string, error) {
 }
 
 func displayStats(ctx context.Context, r *rely.Relay) {
-	const statsLines = 19
+	const statsLines = 23
 	var first = true
 
 	ticker := time.NewTicker(1 * time.Second)

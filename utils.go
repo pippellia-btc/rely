@@ -11,52 +11,10 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 )
-
-// InvalidID returns an error if the event's ID is invalid
-func InvalidID(c Client, e *nostr.Event) error {
-	if !e.CheckID() {
-		return ErrInvalidEventID
-	}
-	return nil
-}
-
-// InvalidSignature returns an error if the event's signature is invalid.
-func InvalidSignature(c Client, e *nostr.Event) error {
-	match, err := e.CheckSignature()
-	if err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidEventSignature, err.Error())
-	}
-
-	if !match {
-		return ErrInvalidEventSignature
-	}
-	return nil
-}
-
-// RegistrationFailWithin returns a RejectConnection function that errs
-// if a client registration has failed within the given duration.
-func RegistrationFailWithin(d time.Duration) func(Stats, *http.Request) error {
-	return func(s Stats, r *http.Request) error {
-		if time.Since(s.LastRegistrationFail()) < d {
-			return ErrOverloaded
-		}
-		return nil
-	}
-}
-
-func DisconnectOnDrops(maxDropped int) func(c Client) {
-	return func(c Client) {
-		if c.DroppedResponses() > maxDropped {
-			c.SendNotice("too many dropped responses, disconnecting")
-			c.Disconnect()
-		}
-	}
-}
 
 // Extracts the IP address from the http request.
 func IP(r *http.Request) string {
