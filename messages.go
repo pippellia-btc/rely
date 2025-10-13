@@ -25,7 +25,23 @@ var (
 
 type UID string
 
-func combine(id1, id2 string) UID { return UID(id1 + ":" + id2) }
+func (uid UID) MarshalBinary() ([]byte, error) { return []byte(uid), nil }
+func combine(id1, id2 string) UID              { return UID(id1 + ":" + id2) }
+
+type UIDs []UID
+
+// remove the first appearance of uid from the list of uids, if present.
+func remove(uids []UID, uid UID) []UID {
+	for i, v := range uids {
+		if v == uid {
+			// release memory
+			last := len(uids) - 1
+			uids[i], uids[last] = uids[last], ""
+			return uids[:last]
+		}
+	}
+	return uids
+}
 
 type request interface {
 	// UID is a gloally unique identifier for the request.

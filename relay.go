@@ -20,16 +20,23 @@ var (
 )
 
 type Relay struct {
-	nextUID              atomic.Int64
-	clients              map[*client]struct{} // set of connected clients
-	clientsCount         atomic.Int64         // number of connected clients
-	lastRegistrationFail atomic.Int64         // last time a client registration failed
-	wg                   sync.WaitGroup       // needed for graceful shutdown
+	nextID               atomic.Int64
+	clients              map[*client]UIDs
+	clientsCount         atomic.Int64
+	lastRegistrationFail atomic.Int64
 
-	register   chan *client
-	unregister chan *client
-	broadcast  chan *nostr.Event // used to broadcast events to all matching clients
-	queue      chan request      // the queue for EVENTs, REQs and COUNTs
+	subscriptions      map[UID]Subscription
+	subscriptionsCount atomic.Int64
+	filtersCount       atomic.Int64
+	wg                 sync.WaitGroup // needed for graceful shutdown
+
+	registerClient    chan *client
+	unregisterClient  chan *client
+	openSubscription  chan Subscription
+	closeSubscription chan UID
+
+	broadcastEvent chan *nostr.Event // used to broadcast events to all matching clients
+	queue          chan request      // the queue for EVENTs, REQs and COUNTs
 
 	RelayFunctions
 	systemOptions
@@ -91,6 +98,12 @@ type Stats interface {
 	// Clients returns the number of active clients connected to the relay.
 	Clients() int
 
+	// Subscriptions returns the number of active subscriptions.
+	Subscriptions() int
+
+	// Filters returns the number of active filters of REQ subscriptions.
+	Filters() int
+
 	// TotalConnections returns the total number of connections since the relay startup.
 	TotalConnections() int
 
@@ -104,11 +117,13 @@ type Stats interface {
 }
 
 func (r *Relay) Clients() int                    { return int(r.clientsCount.Load()) }
-func (r *Relay) TotalConnections() int           { return int(r.nextUID.Load()) }
+func (r *Relay) Subscriptions() int              { return int(r.subscriptionsCount.Load()) }
+func (r *Relay) Filters() int                    { return int(r.filtersCount.Load()) }
+func (r *Relay) TotalConnections() int           { return int(r.nextID.Load()) }
 func (r *Relay) QueueLoad() float64              { return float64(len(r.queue)) / float64(cap(r.queue)) }
 func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
 
-func (r *Relay) assignID() string { return strconv.FormatInt(r.nextUID.Add(1), 10) }
+func (r *Relay) assignID() string { return strconv.FormatInt(r.nextID.Add(1), 10) }
 
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
 // Customize its structure with functional options (e.g., [WithDomain], [WithQueueCapacity]).
@@ -123,11 +138,14 @@ func (r *Relay) assignID() string { return strconv.FormatInt(r.nextUID.Add(1), 1
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		clients:    make(map[*client]struct{}, 1000),
-		register:   make(chan *client, 1000),
-		unregister: make(chan *client, 1000),
-		broadcast:  make(chan *nostr.Event, 1000),
-		queue:      make(chan request, 1000),
+		clients:           make(map[*client]UIDs, 1000),
+		subscriptions:     make(map[UID]Subscription, 3000),
+		registerClient:    make(chan *client, 1000),
+		unregisterClient:  make(chan *client, 1000),
+		openSubscription:  make(chan Subscription, 1000),
+		closeSubscription: make(chan UID, 1000),
+		broadcastEvent:    make(chan *nostr.Event, 1000),
+		queue:             make(chan request, 1000),
 
 		RelayFunctions: newRelayFunctions(),
 
@@ -143,24 +161,10 @@ func NewRelay(opts ...Option) *Relay {
 	return r
 }
 
-// enqueue tries to add the request to the queue of the relay.
-// If it's full, it returns [ErrOverloaded]
-func (r *Relay) enqueue(req request) *requestError {
-	select {
-	case r.queue <- req:
-		return nil
-	default:
-		if r.logPressure {
-			log.Printf("failed to enqueue request %s: %v", req.UID(), ErrOverloaded)
-		}
-		return &requestError{ID: req.ID(), Err: ErrOverloaded}
-	}
-}
-
 // Broadcast the event to all clients whose subscriptions match it.
 func (r *Relay) Broadcast(e *nostr.Event) error {
 	select {
-	case r.broadcast <- e:
+	case r.broadcastEvent <- e:
 		return nil
 	default:
 		if r.logPressure {
@@ -227,75 +231,154 @@ func (r *Relay) coordinator(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.close()
+			r.shutdown()
 			return
 
-		case client := <-r.register:
-			r.clients[client] = struct{}{}
-			r.clientsCount.Add(1)
-			r.OnConnect(client)
+		case client := <-r.registerClient:
+			r.register(client)
 
-		case client := <-r.unregister:
-			if _, ok := r.clients[client]; ok {
-				delete(r.clients, client)
-				r.clientsCount.Add(-1)
-				r.OnDisconnect(client)
-			}
+		case client := <-r.unregisterClient:
+			r.unregister(client)
 
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
-			for range len(r.unregister) {
-				client = <-r.unregister
-				if _, ok := r.clients[client]; ok {
-					delete(r.clients, client)
-					r.clientsCount.Add(-1)
-					r.OnDisconnect(client)
-				}
+			for range len(r.unregisterClient) {
+				client = <-r.unregisterClient
+				r.unregister(client)
 			}
 
-		case event := <-r.broadcast:
-			for client := range r.clients {
-				for _, ID := range client.subscriptions.Matching(event) {
-					client.send(eventResponse{ID: ID, Event: event})
-				}
-			}
+		case sub := <-r.openSubscription:
+			r.open(sub)
+
+		case subID := <-r.closeSubscription:
+			r.close(subID)
+
+		case event := <-r.broadcastEvent:
+			r.broadcast(event)
 		}
 	}
 }
 
-// Close correctly unregisters all connected clients for a safe shutdown.
-func (r *Relay) close() {
+func (r *Relay) register(c *client) {
+	// avoid rare case when a subscription is opened before client registration
+	if _, exists := r.clients[c]; !exists {
+		r.clients[c] = make([]UID, 0, 5)
+	}
+	r.clientsCount.Add(1)
+}
+
+func (r *Relay) unregister(c *client) {
+	uids, exists := r.clients[c]
+	if exists {
+		delete(r.clients, c)
+		r.clientsCount.Add(-1)
+
+		for _, uid := range uids {
+			sub := r.subscriptions[uid]
+			sub.cancel()
+			delete(r.subscriptions, uid)
+
+			r.subscriptionsCount.Add(-1)
+			r.filtersCount.Add(-int64(len(sub.Filters)))
+		}
+	}
+}
+
+func (r *Relay) open(new Subscription) {
+	if new.client.isUnregistering.Load() {
+		return
+	}
+
+	uid := new.UID()
+	old, exists := r.subscriptions[uid]
+	if exists {
+		old.cancel()
+		r.subscriptions[uid] = new
+
+		delta := int64(len(new.Filters) - len(old.Filters))
+		r.filtersCount.Add(delta)
+		return
+	}
+
+	r.subscriptions[uid] = new
+	r.clients[new.client] = append(r.clients[new.client], uid)
+
+	r.subscriptionsCount.Add(1)
+	r.filtersCount.Add(int64(len(new.Filters)))
+	// TODO: add to inverted indexes later
+}
+
+func (r *Relay) close(uid UID) {
+	sub, exists := r.subscriptions[uid]
+	if exists {
+		sub.cancel()
+		delete(r.subscriptions, uid)
+		r.clients[sub.client] = remove(r.clients[sub.client], uid)
+
+		r.subscriptionsCount.Add(-1)
+		r.filtersCount.Add(-int64(len(sub.Filters)))
+		// TODO: remove from inverted indexes later
+	}
+}
+
+func (r *Relay) broadcast(e *nostr.Event) {
+	// TODO: implement efficient candidate search with inverted indexes later
+	for _, sub := range r.subscriptions {
+		if sub.typ == "REQ" && sub.Matches(e) {
+			sub.client.send(eventResponse{ID: sub.ID, Event: e})
+		}
+	}
+}
+
+// Shutdown correctly unregisters all connected clients for a safe shutdown.
+func (r *Relay) shutdown() {
 	log.Println("shutting down the relay...")
 	defer log.Println("relay stopped")
 
-	// When the ctx in [Relay.Start] is cancelled, [Relay.coordinator] returns, calling close.
-	// At this point clients can be divided into two non-overlapping sets:
-	//   - clients in the unregistering queue
-	//   - clients not in the unregistering queue
-	//
-	// We can distinguish between them by using the [client.isUnregistering] bool, which is
-	// atomically set to true in the defers of [client.read].
-	//
-	// So, we first remove all clients not in the unregistering queue, which guarantees
-	// that what remains is in the aforementioned queue, which will be drained later.
-	// Doing the opposite won't work because clients can end up in the unregistering queue
-	// on their own after we drain it.
-
-	for client := range r.clients {
-		if client.isUnregistering.CompareAndSwap(false, true) {
-			delete(r.clients, client)
-			close(client.done)
-			r.clientsCount.Add(-1)
+	// Drain clients from the registering queue, making their respective
+	// [client.read] and [client.write] return. It's assumed that it's no longer
+	// possible for clients to be sent to the registering queue
+drainRegister:
+	for {
+		select {
+		case client := <-r.registerClient:
+			if client.isUnregistering.CompareAndSwap(false, true) {
+				close(client.done)
+			}
+		default:
+			break drainRegister
 		}
 	}
 
+	// Remove clients in the map not in the unregistering queue.
+	for client := range r.clients {
+		if client.isUnregistering.CompareAndSwap(false, true) {
+			close(client.done)
+			r.unregister(client)
+		}
+	}
+
+	// Drain clients from the unregistering queue. This step must be done last because
+	// clients can end up in this queue on their own, and the [client.Disconnect] is blocking
+drainUnregister:
 	for {
 		select {
-		case client := <-r.unregister:
+		case client := <-r.unregisterClient:
 			delete(r.clients, client)
 			r.clientsCount.Add(-1)
 		default:
-			return
+			break drainUnregister
+		}
+	}
+
+	// Drain subscriptions because some clients, or the [Relay.processor]
+	// might be blocked because the channel send to closeSubscription is blocking
+drainSubscriptions:
+	for {
+		select {
+		case <-r.closeSubscription:
+		default:
+			break drainSubscriptions
 		}
 	}
 }
@@ -351,7 +434,7 @@ func (r *Relay) process(request request) {
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			request.client.subscriptions.Remove(ID)
+			r.closeSubscription <- request.UID()
 			return
 		}
 
@@ -368,12 +451,12 @@ func (r *Relay) process(request request) {
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			request.client.subscriptions.Remove(ID)
+			r.closeSubscription <- request.UID()
 			return
 		}
 
 		request.client.send(countResponse{ID: ID, Count: count, Approx: approx})
-		request.client.subscriptions.Remove(ID)
+		r.closeSubscription <- request.UID()
 	}
 }
 
@@ -419,10 +502,11 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	select {
-	case r.register <- client:
+	case r.registerClient <- client:
 		r.wg.Add(2)
 		go client.write()
 		go client.read()
+		r.OnConnect(client)
 
 	default:
 		r.lastRegistrationFail.Store(time.Now().Unix())
@@ -430,7 +514,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		conn.Close()
 
 		if r.logPressure {
-			log.Printf("failed to register client %s: channel is full", client.ip)
+			log.Printf("failed to registerClient client %s: channel is full", client.ip)
 		}
 	}
 }

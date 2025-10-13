@@ -125,33 +125,6 @@ func ApplyBudget(budget int, filters ...nostr.Filter) {
 	}
 }
 
-// Display important statistics of the relay while it's running on standard output.
-// Example usage: go rely.DisplayStats(ctx, relay)
-func DisplayStats(ctx context.Context, r *Relay) {
-	const statsLines = 9
-	var first = true
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		case <-ticker.C:
-			if !first {
-				// clear stats, then print
-				fmt.Printf("\033[%dA", statsLines)
-				fmt.Print("\033[J")
-			}
-
-			r.PrintStats()
-			first = false
-		}
-	}
-}
-
 // Print important stats of the relay while it's running.
 func (r *Relay) PrintStats() {
 	goroutines := runtime.NumGoroutine()
@@ -162,10 +135,14 @@ func (r *Relay) PrintStats() {
 	fmt.Printf("memory: %.2f MB\n", float64(memStats.Alloc)/(1024*1024))
 	fmt.Printf("goroutines: %d\n", goroutines)
 	fmt.Printf("active clients: %d\n", r.clientsCount.Load())
+	fmt.Printf("active subscriptions: %d\n", r.subscriptionsCount.Load())
+	fmt.Printf("active filters: %d\n", r.filtersCount.Load())
 	fmt.Printf("processing queue: %d/%d\n", len(r.queue), cap(r.queue))
-	fmt.Printf("broadcast queue: %d/%d\n", len(r.broadcast), cap(r.broadcast))
-	fmt.Printf("register channel: %d/%d\n", len(r.register), cap(r.register))
-	fmt.Printf("unregister channel: %d/%d\n", len(r.unregister), cap(r.unregister))
+	fmt.Printf("broadcast event channel: %d/%d\n", len(r.broadcastEvent), cap(r.broadcastEvent))
+	fmt.Printf("register client channel: %d/%d\n", len(r.registerClient), cap(r.registerClient))
+	fmt.Printf("unregister client channel: %d/%d\n", len(r.unregisterClient), cap(r.unregisterClient))
+	fmt.Printf("open subscription channel: %d/%d\n", len(r.openSubscription), cap(r.openSubscription))
+	fmt.Printf("close subscription channel: %d/%d\n", len(r.closeSubscription), cap(r.closeSubscription))
 	fmt.Println("---------------------------------------")
 }
 

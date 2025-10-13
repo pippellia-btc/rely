@@ -27,7 +27,7 @@ type Client interface {
 	Pubkey() string
 
 	// Subscriptions returns the currently active "REQ" subscriptions of the client.
-	Subscriptions() []Subscription
+	// Subscriptions() []Subscription
 
 	// SendNotice to the client, useful for greeting, warnings and other informational messages.
 	SendNotice(string)
@@ -69,10 +69,9 @@ type Client interface {
 // - read errors in the [client.read] (automatic)
 // - the call to [client.Disconnect] (automatic or manual)
 type client struct {
-	id            string
-	ip            string
-	auther        auther
-	subscriptions Subscriptions
+	id     string
+	ip     string
+	auther auther
 
 	relay     *Relay
 	conn      *websocket.Conn
@@ -83,12 +82,13 @@ type client struct {
 	droppedResponses atomic.Int64
 }
 
-func (c *client) ID() string                    { return c.id }
-func (c *client) IP() string                    { return c.ip }
-func (c *client) Pubkey() string                { return c.auther.Pubkey() }
-func (c *client) Subscriptions() []Subscription { return c.subscriptions.List() }
-func (c *client) DroppedResponses() int         { return int(c.droppedResponses.Load()) }
-func (c *client) RemainingCapacity() int        { return cap(c.responses) - len(c.responses) }
+func (c *client) ID() string     { return c.id }
+func (c *client) IP() string     { return c.ip }
+func (c *client) Pubkey() string { return c.auther.Pubkey() }
+
+// func (c *client) Subscriptions() []Subscription { return c.subscriptions.List() }
+func (c *client) DroppedResponses() int  { return int(c.droppedResponses.Load()) }
+func (c *client) RemainingCapacity() int { return cap(c.responses) - len(c.responses) }
 
 func (c *client) SendNotice(message string) {
 	c.send(noticeResponse{Message: message})
@@ -110,44 +110,9 @@ func (c *client) SendAuth() {
 func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		close(c.done)
-		c.relay.unregister <- c
+		c.relay.unregisterClient <- c
+		c.relay.OnDisconnect(c)
 	}
-}
-
-// rejectEvent wraps the relay RejectEvent functions and makes them accessible to the client.
-func (c *client) rejectEvent(e *eventRequest) *requestError {
-	for _, reject := range c.relay.RejectEvent {
-		if err := reject(c, e.Event); err != nil {
-			return &requestError{ID: e.Event.ID, Err: err}
-		}
-	}
-	return nil
-}
-
-// rejectReq wraps the relay RejectReq functions and makes them accessible to the client.
-func (c *client) rejectReq(req *reqRequest) *requestError {
-	for _, reject := range c.relay.RejectReq {
-		if err := reject(c, req.Filters); err != nil {
-			return &requestError{ID: req.id, Err: err}
-		}
-	}
-	return nil
-}
-
-// rejectCount wraps the relay RejectCount functions and makes them accessible to the client.
-// if relay.OnCount has not been set, an error is returned.
-func (c *client) rejectCount(count *countRequest) *requestError {
-	if c.relay.OnCount == nil {
-		// nip-45 is optional
-		return &requestError{ID: count.id, Err: ErrUnsupportedNIP45}
-	}
-
-	for _, reject := range c.relay.RejectCount {
-		if err := reject(c, count.Filters); err != nil {
-			return &requestError{ID: count.id, Err: err}
-		}
-	}
-	return nil
 }
 
 // The client reads from the websocket and parses the data into the appropriate structure (e.g. [reqRequest]).
@@ -205,7 +170,7 @@ func (c *client) read() {
 			}
 
 			event.client = c
-			if err := c.relay.enqueue(event); err != nil {
+			if err := c.tryEnqueue(event); err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 			}
 
@@ -225,12 +190,15 @@ func (c *client) read() {
 			req.client = c
 			sub := req.Subscription()
 
-			if err := c.relay.enqueue(req); err != nil {
+			if err := c.tryEnqueue(req); err != nil {
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
-			c.subscriptions.Add(sub)
+			if err := c.tryOpen(sub); err != nil {
+				sub.cancel()
+				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
+			}
 
 		case "COUNT":
 			count, err := parseCount(decoder)
@@ -248,12 +216,15 @@ func (c *client) read() {
 			count.client = c
 			sub := count.Subscription()
 
-			if err := c.relay.enqueue(count); err != nil {
+			if err := c.tryEnqueue(count); err != nil {
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
-			c.subscriptions.Add(sub)
+			if err := c.tryOpen(sub); err != nil {
+				sub.cancel()
+				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
+			}
 
 		case "CLOSE":
 			close, err := parseClose(decoder)
@@ -263,7 +234,9 @@ func (c *client) read() {
 				continue
 			}
 
-			c.subscriptions.Remove(close.ID)
+			// Block until it's able to send in the closing subscriptions queue,
+			// If this were non-blocking, failure to enqueue would imply a memory leak.
+			c.relay.closeSubscription <- combine(c.id, close.ID)
 
 		case "AUTH":
 			auth, err := parseAuth(decoder)
@@ -344,6 +317,70 @@ func (c *client) send(r response) {
 		c.droppedResponses.Add(1)
 		c.relay.OnGreedyClient(c)
 	}
+}
+
+// tryEnqueue tries to add the request to the queue of the relay.
+// If it's full, it returns [ErrOverloaded]
+func (c *client) tryEnqueue(r request) *requestError {
+	select {
+	case c.relay.queue <- r:
+		return nil
+	default:
+		if c.relay.logPressure {
+			log.Printf("failed to enqueue request %s: %v", r.UID(), ErrOverloaded)
+		}
+		return &requestError{ID: r.ID(), Err: ErrOverloaded}
+	}
+}
+
+// tryOpen tries to add the subscription to the open subscriptions of the relay.
+// If it's full, it returns [ErrOverloaded]
+func (c *client) tryOpen(s Subscription) *requestError {
+	select {
+	case c.relay.openSubscription <- s:
+		return nil
+	default:
+		if c.relay.logPressure {
+			log.Printf("failed to open subscription %s: %v", s.UID(), ErrOverloaded)
+		}
+		return &requestError{ID: s.ID, Err: ErrOverloaded}
+	}
+}
+
+// rejectEvent wraps the relay RejectEvent functions and makes them accessible to the client.
+func (c *client) rejectEvent(e *eventRequest) *requestError {
+	for _, reject := range c.relay.RejectEvent {
+		if err := reject(c, e.Event); err != nil {
+			return &requestError{ID: e.Event.ID, Err: err}
+		}
+	}
+	return nil
+}
+
+// rejectReq wraps the relay RejectReq functions and makes them accessible to the client.
+func (c *client) rejectReq(req *reqRequest) *requestError {
+	for _, reject := range c.relay.RejectReq {
+		if err := reject(c, req.Filters); err != nil {
+			return &requestError{ID: req.id, Err: err}
+		}
+	}
+	return nil
+}
+
+// rejectCount wraps the relay RejectCount functions and makes them accessible to the client.
+// if relay.OnCount has not been set, an error is returned.
+func (c *client) rejectCount(count *countRequest) *requestError {
+	if c.relay.OnCount == nil {
+		// nip-45 is optional
+		return &requestError{ID: count.id, Err: ErrUnsupportedNIP45}
+	}
+
+	for _, reject := range c.relay.RejectCount {
+		if err := reject(c, count.Filters); err != nil {
+			return &requestError{ID: count.id, Err: err}
+		}
+	}
+	return nil
 }
 
 func (c *client) setWriteDeadline() {
