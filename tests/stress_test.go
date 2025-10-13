@@ -34,8 +34,8 @@ var (
 
 const (
 	testDuration        time.Duration = 500 * time.Second
-	relayDuration       time.Duration = testDuration * 98 / 10
-	attackDuration      time.Duration = testDuration * 96 / 10
+	relayDuration       time.Duration = testDuration - 10*time.Second
+	attackDuration      time.Duration = testDuration - 20*time.Second
 	connectionFrequency time.Duration = 2 * time.Millisecond
 
 	relayFailProbability        float32 = 0.05
@@ -341,6 +341,7 @@ func displayStats(ctx context.Context, r *rely.Relay) {
 	for {
 		select {
 		case <-ctx.Done():
+			clearScreen()
 			return
 
 		case <-ticker.C:

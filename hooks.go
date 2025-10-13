@@ -62,7 +62,26 @@ func DefaultRejectHooks() RejectHooks {
 // OnHooks enable users to implement custom processing, logging, persistence,
 // authorization, or other side effects in response to relay activity.
 type OnHooks struct {
-	Connect    func(Client)
+	// Connect runs immediately after a client has been connected and registered.
+	// It is guaranteed to run before the Disconnect hook of the same client.
+	// This callback must be very fast to avoid blocking the hot path.
+	// For longer operations, use goroutines.
+	//
+	// Example:
+	//   relay.On.Connect = func(c Client) {
+	//       go longOperation(c)
+	//   }
+	Connect func(Client)
+
+	// Disconnect runs immediately after a client has been unregistered and disconnected.
+	// It is guaranteed to run after the Connect hook of the same client.
+	// This callback must be very fast to avoid blocking the hot path.
+	// For longer operations, use goroutines.
+	//
+	// Example:
+	//   relay.On.Disconnect = func(c Client) {
+	//       go longOperation(c)
+	//   }
 	Disconnect func(Client)
 	Auth       func(Client)
 	Event      func(Client, *nostr.Event) error

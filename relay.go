@@ -132,15 +132,21 @@ func (r *Relay) dispatchLoop(ctx context.Context) {
 
 		case client := <-r.registerClient:
 			r.dispatcher.register(client)
+			r.wg.Add(2)
+			go client.read()
+			go client.write()
+			r.On.Connect(client)
 
 		case client := <-r.unregisterClient:
 			r.dispatcher.unregister(client)
+			r.On.Disconnect(client)
 
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
 			for range len(r.unregisterClient) {
 				client = <-r.unregisterClient
 				r.dispatcher.unregister(client)
+				r.On.Disconnect(client)
 			}
 
 		case sub := <-r.openSubscription:
@@ -341,10 +347,6 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 
 	select {
 	case r.registerClient <- client:
-		r.wg.Add(2)
-		go client.write()
-		go client.read()
-		r.On.Connect(client)
 
 	default:
 		r.lastRegistrationFail.Store(time.Now().Unix())

@@ -111,7 +111,6 @@ func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		close(c.done)
 		c.relay.unregisterClient <- c
-		c.relay.On.Disconnect(c)
 	}
 }
 

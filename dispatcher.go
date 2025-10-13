@@ -29,27 +29,22 @@ func newDispatcher() *dispatcher {
 }
 
 func (d *dispatcher) register(c *client) {
-	// avoid rare case when a subscription is opened before client registration
-	if _, exists := d.clients[c]; !exists {
-		d.clients[c] = make([]UID, 0, 5)
-	}
+	d.clients[c] = make([]UID, 0, 5)
 	d.stats.clients.Add(1)
 }
 
 func (d *dispatcher) unregister(c *client) {
-	subs, exists := d.clients[c]
-	if exists {
-		delete(d.clients, c)
-		d.stats.clients.Add(-1)
+	subs := d.clients[c]
+	delete(d.clients, c)
+	d.stats.clients.Add(-1)
 
-		for _, uid := range subs {
-			sub := d.subscriptions[uid]
-			sub.cancel()
-			delete(d.subscriptions, uid)
+	for _, uid := range subs {
+		sub := d.subscriptions[uid]
+		sub.cancel()
+		delete(d.subscriptions, uid)
 
-			d.stats.subscriptions.Add(-1)
-			d.stats.filters.Add(-int64(len(sub.Filters)))
-		}
+		d.stats.subscriptions.Add(-1)
+		d.stats.filters.Add(-int64(len(sub.Filters)))
 	}
 }
 
