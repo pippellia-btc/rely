@@ -10,9 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-json"
 	"github.com/nbd-wtf/go-nostr"
-
-	gojson "github.com/goccy/go-json"
 )
 
 func TestApplyBudget(t *testing.T) {
@@ -130,7 +129,7 @@ func TestParseLabel(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			r := bytes.NewReader(test.data)
-			d := gojson.NewDecoder(r)
+			d := json.NewDecoder(r)
 
 			label, err := parseLabel(d)
 			if !errors.Is(err, test.err) {
@@ -171,7 +170,7 @@ func TestParseEvent(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			r := bytes.NewReader(test.data)
-			d := gojson.NewDecoder(r)
+			d := json.NewDecoder(r)
 
 			_, err := parseLabel(d)
 			if err != nil {
@@ -227,7 +226,7 @@ func TestParseReq(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			r := bytes.NewReader(test.data)
-			d := gojson.NewDecoder(r)
+			d := json.NewDecoder(r)
 
 			_, err := parseLabel(d)
 			if err != nil {
@@ -283,7 +282,7 @@ func TestParseCount(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			r := bytes.NewReader(test.data)
-			d := gojson.NewDecoder(r)
+			d := json.NewDecoder(r)
 
 			_, err := parseLabel(d)
 			if err != nil {
@@ -334,7 +333,7 @@ func TestParseClose(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			r := bytes.NewReader(test.data)
-			d := gojson.NewDecoder(r)
+			d := json.NewDecoder(r)
 
 			_, err := parseLabel(d)
 			if err != nil {
@@ -375,7 +374,7 @@ func TestParseAuth(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			r := bytes.NewReader(test.data)
-			d := gojson.NewDecoder(r)
+			d := json.NewDecoder(r)
 
 			_, err := parseLabel(d)
 			if err != nil {
@@ -492,7 +491,7 @@ var (
 func BenchmarkParseEvent(b *testing.B) {
 	for range b.N {
 		readerEvent.Seek(0, io.SeekStart)
-		d := gojson.NewDecoder(readerEvent)
+		d := json.NewDecoder(readerEvent)
 
 		_, err := parseLabel(d)
 		if err != nil {
@@ -508,7 +507,7 @@ func BenchmarkParseEvent(b *testing.B) {
 func BenchmarkParseReq(b *testing.B) {
 	for range b.N {
 		readerReq.Seek(0, io.SeekStart)
-		dec := gojson.NewDecoder(readerReq)
+		dec := json.NewDecoder(readerReq)
 		_, err := parseLabel(dec)
 		if err != nil {
 			b.Fatal(err)
