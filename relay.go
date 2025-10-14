@@ -30,7 +30,7 @@ type Relay struct {
 	open       chan Subscription
 	close      chan UID
 	broadcast  chan *nostr.Event
-	queue      chan request // the queue for EVENTs, REQs and COUNTs
+	process    chan request
 
 	Hooks
 	systemOptions
@@ -56,7 +56,7 @@ func NewRelay(opts ...Option) *Relay {
 		open:             make(chan Subscription, 256),
 		close:            make(chan UID, 256),
 		broadcast:        make(chan *nostr.Event, 1024),
-		queue:            make(chan request, 1024),
+		process:          make(chan request, 1024),
 		Hooks:            DefaultHooks(),
 		systemOptions:    newSystemOptions(),
 		websocketOptions: newWebsocketOptions(),
@@ -214,8 +214,8 @@ drainSubscriptions:
 	}
 }
 
-// Process the requests in the relay queue with [Relay.maxProcessors] processors,
-// by appliying the user defined [RelayFunctions].
+// The respondLoop process the requests with [Relay.maxProcessors] processors,
+// by appliying the user defined [Hooks].
 func (r *Relay) processLoop(ctx context.Context) {
 	defer r.wg.Done()
 
@@ -226,22 +226,22 @@ func (r *Relay) processLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 
-		case request := <-r.queue:
+		case request := <-r.process:
 			if request.IsExpired() {
 				continue
 			}
 
 			sem <- struct{}{}
 			go func() {
-				r.process(request)
+				r.processOne(request)
 				<-sem
 			}()
 		}
 	}
 }
 
-// process the request according to its type by using the provided [RelayFunctions].
-func (r *Relay) process(request request) {
+// ProcessOne request according to its type by using the provided [Hooks].
+func (r *Relay) processOne(request request) {
 	ID := request.ID()
 	switch request := request.(type) {
 	case *eventRequest:
@@ -301,6 +301,34 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 			log.Printf("failed to broadcast event with ID %s: %v", e.ID, ErrOverloaded)
 		}
 		return ErrOverloaded
+	}
+}
+
+// tryProcess tries to add the request to the processing queue of the relay.
+// If it's full, it returns [ErrOverloaded] inside the [requestError]
+func (r *Relay) tryProcess(rq request) *requestError {
+	select {
+	case r.process <- rq:
+		return nil
+	default:
+		if r.logPressure {
+			log.Printf("failed to enqueue request %s: %v", rq.UID(), ErrOverloaded)
+		}
+		return &requestError{ID: rq.ID(), Err: ErrOverloaded}
+	}
+}
+
+// tryOpen tries to add the subscription to the open subscription queue of the relay.
+// If it's full, it returns [ErrOverloaded] inside the [requestError]
+func (r *Relay) tryOpen(s Subscription) *requestError {
+	select {
+	case r.open <- s:
+		return nil
+	default:
+		if r.logPressure {
+			log.Printf("failed to open subscription %s: %v", s.UID(), ErrOverloaded)
+		}
+		return &requestError{ID: s.ID, Err: ErrOverloaded}
 	}
 }
 

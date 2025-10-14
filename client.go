@@ -169,7 +169,7 @@ func (c *client) read() {
 			}
 
 			event.client = c
-			if err := c.tryEnqueue(event); err != nil {
+			if err := c.relay.tryProcess(event); err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 			}
 
@@ -189,12 +189,12 @@ func (c *client) read() {
 			req.client = c
 			sub := req.Subscription()
 
-			if err := c.tryEnqueue(req); err != nil {
+			if err := c.relay.tryProcess(req); err != nil {
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
-			if err := c.tryOpen(sub); err != nil {
+			if err := c.relay.tryOpen(sub); err != nil {
 				sub.cancel()
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 			}
@@ -215,12 +215,12 @@ func (c *client) read() {
 			count.client = c
 			sub := count.Subscription()
 
-			if err := c.tryEnqueue(count); err != nil {
+			if err := c.relay.tryProcess(count); err != nil {
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
-			if err := c.tryOpen(sub); err != nil {
+			if err := c.relay.tryOpen(sub); err != nil {
 				sub.cancel()
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 			}
@@ -315,34 +315,6 @@ func (c *client) send(r response) {
 	default:
 		c.droppedResponses.Add(1)
 		c.relay.When.GreedyClient(c)
-	}
-}
-
-// tryEnqueue tries to add the request to the queue of the relay.
-// If it's full, it returns [ErrOverloaded]
-func (c *client) tryEnqueue(r request) *requestError {
-	select {
-	case c.relay.queue <- r:
-		return nil
-	default:
-		if c.relay.logPressure {
-			log.Printf("failed to enqueue request %s: %v", r.UID(), ErrOverloaded)
-		}
-		return &requestError{ID: r.ID(), Err: ErrOverloaded}
-	}
-}
-
-// tryOpen tries to add the subscription to the open subscriptions of the relay.
-// If it's full, it returns [ErrOverloaded]
-func (c *client) tryOpen(s Subscription) *requestError {
-	select {
-	case c.relay.open <- s:
-		return nil
-	default:
-		if c.relay.logPressure {
-			log.Printf("failed to open subscription %s: %v", s.UID(), ErrOverloaded)
-		}
-		return &requestError{ID: s.ID, Err: ErrOverloaded}
 	}
 }
 

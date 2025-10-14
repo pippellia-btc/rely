@@ -77,7 +77,7 @@ func WithMaxProcessors(n int) Option       { return func(r *Relay) { r.maxProces
 func WithClientResponseLimit(n int) Option { return func(r *Relay) { r.responseLimit = n } }
 func WithDomain(d string) Option           { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
 func WithoutPressureLogs() Option          { return func(r *Relay) { r.logPressure = false } }
-func WithQueueCapacity(c int) Option       { return func(r *Relay) { r.queue = make(chan request, c) } }
+func WithQueueCapacity(c int) Option       { return func(r *Relay) { r.process = make(chan request, c) } }
 
 func WithInfo(info nip11.RelayInformationDocument) Option {
 	return func(r *Relay) {
