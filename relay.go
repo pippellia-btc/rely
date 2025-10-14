@@ -51,12 +51,12 @@ type Relay struct {
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
 		dispatcher:        newDispatcher(),
-		registerClient:    make(chan *client, 1000),
-		unregisterClient:  make(chan *client, 1000),
-		openSubscription:  make(chan Subscription, 1000),
-		closeSubscription: make(chan UID, 1000),
-		broadcastEvent:    make(chan *nostr.Event, 1000),
-		queue:             make(chan request, 1000),
+		registerClient:    make(chan *client, 256),
+		unregisterClient:  make(chan *client, 256),
+		openSubscription:  make(chan Subscription, 256),
+		closeSubscription: make(chan UID, 256),
+		broadcastEvent:    make(chan *nostr.Event, 1024),
+		queue:             make(chan request, 1024),
 		Hooks:             DefaultHooks(),
 		systemOptions:     newSystemOptions(),
 		websocketOptions:  newWebsocketOptions(),
