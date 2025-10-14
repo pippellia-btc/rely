@@ -10,8 +10,8 @@ import (
 // essential for efficient broadcasting of events and for a graceful shutdown.
 // Its methods are not safe for concurrent use, and must be syncronized externally.
 type dispatcher struct {
-	clients       map[*client]UIDs
-	subscriptions map[UID]Subscription
+	clients       map[*client][]sID
+	subscriptions map[sID]Subscription
 	stats         dispatcherStats
 }
 
@@ -23,13 +23,13 @@ type dispatcherStats struct {
 
 func newDispatcher() *dispatcher {
 	return &dispatcher{
-		clients:       make(map[*client]UIDs, 1000),
-		subscriptions: make(map[UID]Subscription, 1000),
+		clients:       make(map[*client][]sID, 1000),
+		subscriptions: make(map[sID]Subscription, 1000),
 	}
 }
 
 func (d *dispatcher) register(c *client) {
-	d.clients[c] = make([]UID, 0, 5)
+	d.clients[c] = make([]sID, 0, 5)
 	d.stats.clients.Add(1)
 }
 
@@ -53,31 +53,31 @@ func (d *dispatcher) open(new Subscription) {
 		return
 	}
 
-	uid := new.UID()
-	old, exists := d.subscriptions[uid]
+	sID := sID(new.UID())
+	old, exists := d.subscriptions[sID]
 	if exists {
 		old.cancel()
-		d.subscriptions[uid] = new
+		d.subscriptions[sID] = new
 
 		delta := int64(len(new.Filters) - len(old.Filters))
 		d.stats.filters.Add(delta)
 		return
 	}
 
-	d.subscriptions[uid] = new
-	d.clients[new.client] = append(d.clients[new.client], uid)
+	d.subscriptions[sID] = new
+	d.clients[new.client] = append(d.clients[new.client], sID)
 
 	d.stats.subscriptions.Add(1)
 	d.stats.filters.Add(int64(len(new.Filters)))
 	// TODO: add to inverted indexes later
 }
 
-func (d *dispatcher) close(uid UID) {
-	sub, exists := d.subscriptions[uid]
+func (d *dispatcher) close(sID sID) {
+	sub, exists := d.subscriptions[sID]
 	if exists {
 		sub.cancel()
-		delete(d.subscriptions, uid)
-		d.clients[sub.client] = remove(d.clients[sub.client], uid)
+		delete(d.subscriptions, sID)
+		d.clients[sub.client] = remove(d.clients[sub.client], sID)
 
 		d.stats.subscriptions.Add(-1)
 		d.stats.filters.Add(-int64(len(sub.Filters)))

@@ -19,16 +19,18 @@ var (
 )
 
 type Relay struct {
-	nextID               atomic.Int64
-	lastRegistrationFail atomic.Int64
-	wg                   sync.WaitGroup // needed for graceful shutdown
+	uid    string
+	nextID atomic.Int64
+	wg     sync.WaitGroup // needed for graceful shutdown
 
 	dispatcher *dispatcher
+
+	lastRegistrationFail atomic.Int64
 
 	register   chan *client
 	unregister chan *client
 	open       chan Subscription
-	close      chan UID
+	close      chan sID
 	broadcast  chan *nostr.Event
 	process    chan request
 
@@ -50,11 +52,12 @@ type Relay struct {
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
+		uid:              relayUID(),
 		dispatcher:       newDispatcher(),
 		register:         make(chan *client, 256),
 		unregister:       make(chan *client, 256),
 		open:             make(chan Subscription, 256),
-		close:            make(chan UID, 256),
+		close:            make(chan sID, 256),
 		broadcast:        make(chan *nostr.Event, 1024),
 		process:          make(chan request, 1024),
 		Hooks:            DefaultHooks(),
@@ -265,7 +268,7 @@ func (r *Relay) processOne(request request) {
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			r.close <- request.UID()
+			r.close <- sID(request.UID())
 			return
 		}
 
@@ -282,12 +285,12 @@ func (r *Relay) processOne(request request) {
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			r.close <- request.UID()
+			r.close <- sID(request.UID())
 			return
 		}
 
 		request.client.send(countResponse{ID: ID, Count: count, Approx: approx})
-		r.close <- request.UID()
+		r.close <- sID(request.UID())
 	}
 }
 

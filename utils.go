@@ -2,6 +2,8 @@ package rely
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
@@ -129,4 +131,10 @@ func logEvent(c Client, e *nostr.Event) error {
 func logFilters(ctx context.Context, c Client, f nostr.Filters) ([]nostr.Event, error) {
 	log.Printf("received %d filters from IP %s", len(f), c.IP())
 	return nil, nil
+}
+
+func relayUID() string {
+	bytes := make([]byte, 3)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
 }

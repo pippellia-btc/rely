@@ -23,30 +23,31 @@ var (
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
 )
 
-type UID string
+// join multiple strings into one, separated by ":".
+func join[T ~string](str T, strs ...T) T {
+	for _, s := range strs {
+		str += ":" + s
+	}
+	return str
+}
 
-func (uid UID) MarshalBinary() ([]byte, error) { return []byte(uid), nil }
-func combine(id1, id2 string) UID              { return UID(id1 + ":" + id2) }
-
-type UIDs []UID
-
-// remove the first appearance of uid from the list of uids, if present.
-func remove(uids []UID, uid UID) []UID {
-	for i, v := range uids {
-		if v == uid {
+// remove the first appearance of str from the list of strs, if present.
+func remove[T ~string](strs []T, str T) []T {
+	for i, v := range strs {
+		if v == str {
 			// release memory
-			last := len(uids) - 1
-			uids[i], uids[last] = uids[last], ""
-			return uids[:last]
+			last := len(strs) - 1
+			strs[i], strs[last] = strs[last], ""
+			return strs[:last]
 		}
 	}
-	return uids
+	return strs
 }
 
 type request interface {
-	// UID is a gloally unique identifier for the request.
-	// It follows the convention: UID = combine(client.ID(), request.ID())
-	UID() UID
+	// UID is the unique request identifier that combines relay, client, and user-provided
+	// request ID <relay.uid>:<clientNumber>:<request.ID>
+	UID() string
 
 	// ID is a unique identifier within the scope of its client.
 	ID() string
@@ -61,7 +62,7 @@ type eventRequest struct {
 	Event  *nostr.Event
 }
 
-func (e *eventRequest) UID() UID        { return combine(e.client.id, e.Event.ID) }
+func (e *eventRequest) UID() string     { return join(e.client.UID(), e.Event.ID) }
 func (e *eventRequest) ID() string      { return e.Event.ID }
 func (e *eventRequest) IsExpired() bool { return e.client.isUnregistering.Load() }
 
@@ -73,7 +74,7 @@ type reqRequest struct {
 	Filters nostr.Filters
 }
 
-func (r *reqRequest) UID() UID        { return combine(r.client.id, r.id) }
+func (r *reqRequest) UID() string     { return join(r.client.UID(), r.id) }
 func (r *reqRequest) ID() string      { return r.id }
 func (r *reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
 
@@ -97,7 +98,7 @@ type countRequest struct {
 	Filters nostr.Filters
 }
 
-func (c *countRequest) UID() UID        { return combine(c.client.id, c.id) }
+func (c *countRequest) UID() string     { return join(c.client.UID(), c.id) }
 func (c *countRequest) ID() string      { return c.id }
 func (c *countRequest) IsExpired() bool { return c.ctx.Err() != nil || c.client.isUnregistering.Load() }
 

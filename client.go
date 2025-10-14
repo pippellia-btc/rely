@@ -15,9 +15,11 @@ import (
 
 // The Client where the request comes from. All methods are safe for concurrent use.
 type Client interface {
-	// ID is the unique identified for the client. Useful to tie its identity to
+	// UID is the unique identified for the client, useful to tie its identity to
 	// external statistics or resources.
-	ID() string
+	// Follows the hierarchical pattern <relay.uid>:<clientNumber>, where
+	// clientNumber is assigned automatically after connection.
+	UID() string
 
 	// IP address of the client.
 	IP() string
@@ -82,7 +84,7 @@ type client struct {
 	droppedResponses atomic.Int64
 }
 
-func (c *client) ID() string     { return c.id }
+func (c *client) UID() string    { return join(c.relay.uid, c.id) }
 func (c *client) IP() string     { return c.ip }
 func (c *client) Pubkey() string { return c.auther.Pubkey() }
 
@@ -235,7 +237,7 @@ func (c *client) read() {
 
 			// Block until it's able to send in the closing subscriptions queue,
 			// If this were non-blocking, failure to enqueue would imply a memory leak.
-			c.relay.close <- combine(c.id, close.ID)
+			c.relay.close <- sID(join(c.UID(), close.ID))
 
 		case "AUTH":
 			auth, err := parseAuth(decoder)

@@ -73,6 +73,7 @@ func newRelayInfo() []byte {
 	return json
 }
 
+func WithID(id string) Option              { return func(r *Relay) { r.uid = id } }
 func WithMaxProcessors(n int) Option       { return func(r *Relay) { r.maxProcessors = n } }
 func WithClientResponseLimit(n int) Option { return func(r *Relay) { r.responseLimit = n } }
 func WithDomain(d string) Option           { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
@@ -122,6 +123,10 @@ func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessa
 // validate panics if structural parameters are invalid, and logs warnings
 // for non-fatal but potentially misconfigured settings (e.g., missing domain).
 func (r *Relay) validate() {
+	if strings.Contains(r.uid, ":") {
+		panic(`relay uid must not contain ":", which is used as a separator in UIDs`)
+	}
+
 	if r.pingPeriod < 1*time.Second {
 		panic("ping period must be greater than 1s to function reliably")
 	}
