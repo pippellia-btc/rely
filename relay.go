@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 )
 
 var (
+	ErrShuttingDown     = errors.New("the relay is shutting down, please try again later")
 	ErrOverloaded       = errors.New("the relay is overloaded, please try again later")
 	ErrUnsupportedNIP45 = errors.New("NIP-45 COUNT is not supported")
 )
@@ -21,7 +21,8 @@ var (
 type Relay struct {
 	uid    string
 	nextID atomic.Int64
-	wg     sync.WaitGroup // needed for graceful shutdown
+	wg     sync.WaitGroup // for waiting for client's goroutines
+	done   chan struct{}
 
 	dispatcher *dispatcher
 
@@ -63,6 +64,7 @@ func NewRelay(opts ...Option) *Relay {
 		Hooks:            DefaultHooks(),
 		systemOptions:    newSystemOptions(),
 		websocketOptions: newWebsocketOptions(),
+		done:             make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -166,25 +168,27 @@ func (r *Relay) dispatchLoop(ctx context.Context) {
 
 // Shutdown correctly unregisters all connected clients for a safe shutdown.
 func (r *Relay) shutdown() {
-	log.Println("shutting down the relay...")
-	defer log.Println("relay stopped")
+	log.Printf("shutting down the relay %s...", r.uid)
+	defer log.Printf("relay %s stopped", r.uid)
 
-	// Drain clients from the registering queue, making their respective
-	// [client.read] and [client.write] return. It's assumed that it's no longer
-	// possible for clients to be sent to the registering queue
+	// closing the done channel makes [Relay.ServeHTTP] return an error,
+	// and avoids that new clients end up in the registering queue.
+	close(r.done)
+
+	// Close the websocket connections of clients yet to be registered.
 drainRegister:
 	for {
 		select {
 		case client := <-r.register:
-			if client.isUnregistering.CompareAndSwap(false, true) {
-				close(client.done)
-			}
+			client.writeCloseGoingAway()
+			client.conn.Close()
 		default:
 			break drainRegister
 		}
 	}
 
 	// Remove clients in the map not in the unregistering queue.
+	// It's important to distinguish to avoid double closing the client.done.
 	for client := range r.dispatcher.clients {
 		if client.isUnregistering.CompareAndSwap(false, true) {
 			close(client.done)
@@ -198,21 +202,9 @@ drainUnregister:
 	for {
 		select {
 		case client := <-r.unregister:
-			delete(r.dispatcher.clients, client)
-			r.dispatcher.stats.clients.Add(-1)
+			r.dispatcher.unregister(client)
 		default:
 			break drainUnregister
-		}
-	}
-
-	// Drain subscriptions because some clients, or the [Relay.processor]
-	// might be blocked because the channel send to close is blocking
-drainSubscriptions:
-	for {
-		select {
-		case <-r.close:
-		default:
-			break drainSubscriptions
 		}
 	}
 }
@@ -268,7 +260,7 @@ func (r *Relay) processOne(request request) {
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			r.close <- sID(request.UID())
+			r.closeSubscription(request.UID())
 			return
 		}
 
@@ -285,12 +277,12 @@ func (r *Relay) processOne(request request) {
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			r.close <- sID(request.UID())
+			r.closeSubscription(request.UID())
 			return
 		}
 
 		request.client.send(countResponse{ID: ID, Count: count, Approx: approx})
-		r.close <- sID(request.UID())
+		r.closeSubscription(request.UID())
 	}
 }
 
@@ -299,6 +291,8 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 	select {
 	case r.broadcast <- e:
 		return nil
+	case <-r.done:
+		return ErrShuttingDown
 	default:
 		if r.logPressure {
 			log.Printf("failed to broadcast event with ID %s: %v", e.ID, ErrOverloaded)
@@ -313,6 +307,8 @@ func (r *Relay) tryProcess(rq request) *requestError {
 	select {
 	case r.process <- rq:
 		return nil
+	case <-r.done:
+		return &requestError{ID: rq.ID(), Err: ErrShuttingDown}
 	default:
 		if r.logPressure {
 			log.Printf("failed to enqueue request %s: %v", rq.UID(), ErrOverloaded)
@@ -327,6 +323,8 @@ func (r *Relay) tryOpen(s Subscription) *requestError {
 	select {
 	case r.open <- s:
 		return nil
+	case <-r.done:
+		return &requestError{ID: s.ID, Err: ErrShuttingDown}
 	default:
 		if r.logPressure {
 			log.Printf("failed to open subscription %s: %v", s.UID(), ErrOverloaded)
@@ -335,9 +333,28 @@ func (r *Relay) tryOpen(s Subscription) *requestError {
 	}
 }
 
+// closeSubscription wait until it's able to send in the closing subscriptions queue,
+// or the relay shuts down. It's blocking because failure to enqueue implies a memory leak.
+func (r *Relay) closeSubscription(sid string) {
+	select {
+	case r.close <- sID(sid):
+		return
+	case <-r.done:
+		return
+	}
+}
+
 // ServeHTTP implements the [http.Handler] interface, handling WebSocket connections
 // and NIP-11 Relay Information Document requests.
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	select {
+	case <-r.done:
+		http.Error(w, ErrShuttingDown.Error(), http.StatusServiceUnavailable)
+		return
+	default:
+		// proceed
+	}
+
 	switch {
 	case req.Header.Get("Upgrade") == "websocket":
 		r.ServeWS(w, req)
@@ -379,10 +396,14 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	select {
 	case r.register <- client:
 
+	case <-r.done:
+		client.writeCloseGoingAway()
+		client.conn.Close()
+
 	default:
 		r.lastRegistrationFail.Store(time.Now().Unix())
-		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, ErrOverloaded.Error()))
-		conn.Close()
+		client.writeCloseTryLater()
+		client.conn.Close()
 
 		if r.logPressure {
 			log.Printf("failed to register client %s: channel is full", client.ip)
