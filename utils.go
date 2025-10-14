@@ -96,11 +96,11 @@ func (r *Relay) PrintStats() {
 	fmt.Printf("active subscriptions: %d\n", r.Subscriptions())
 	fmt.Printf("active filters: %d\n", r.Filters())
 	fmt.Printf("processing queue: %d/%d\n", len(r.queue), cap(r.queue))
-	fmt.Printf("broadcast event channel: %d/%d\n", len(r.broadcastEvent), cap(r.broadcastEvent))
-	fmt.Printf("register client channel: %d/%d\n", len(r.registerClient), cap(r.registerClient))
-	fmt.Printf("unregister client channel: %d/%d\n", len(r.unregisterClient), cap(r.unregisterClient))
-	fmt.Printf("open subscription channel: %d/%d\n", len(r.openSubscription), cap(r.openSubscription))
-	fmt.Printf("close subscription channel: %d/%d\n", len(r.closeSubscription), cap(r.closeSubscription))
+	fmt.Printf("broadcast event channel: %d/%d\n", len(r.broadcast), cap(r.broadcast))
+	fmt.Printf("register client channel: %d/%d\n", len(r.register), cap(r.register))
+	fmt.Printf("unregister client channel: %d/%d\n", len(r.unregister), cap(r.unregister))
+	fmt.Printf("open subscription channel: %d/%d\n", len(r.open), cap(r.open))
+	fmt.Printf("close subscription channel: %d/%d\n", len(r.close), cap(r.close))
 	fmt.Println("---------------------------------------")
 }
 

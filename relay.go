@@ -25,12 +25,12 @@ type Relay struct {
 
 	dispatcher *dispatcher
 
-	registerClient    chan *client
-	unregisterClient  chan *client
-	openSubscription  chan Subscription
-	closeSubscription chan UID
-	broadcastEvent    chan *nostr.Event
-	queue             chan request // the queue for EVENTs, REQs and COUNTs
+	register   chan *client
+	unregister chan *client
+	open       chan Subscription
+	close      chan UID
+	broadcast  chan *nostr.Event
+	queue      chan request // the queue for EVENTs, REQs and COUNTs
 
 	Hooks
 	systemOptions
@@ -50,16 +50,16 @@ type Relay struct {
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		dispatcher:        newDispatcher(),
-		registerClient:    make(chan *client, 256),
-		unregisterClient:  make(chan *client, 256),
-		openSubscription:  make(chan Subscription, 256),
-		closeSubscription: make(chan UID, 256),
-		broadcastEvent:    make(chan *nostr.Event, 1024),
-		queue:             make(chan request, 1024),
-		Hooks:             DefaultHooks(),
-		systemOptions:     newSystemOptions(),
-		websocketOptions:  newWebsocketOptions(),
+		dispatcher:       newDispatcher(),
+		register:         make(chan *client, 256),
+		unregister:       make(chan *client, 256),
+		open:             make(chan Subscription, 256),
+		close:            make(chan UID, 256),
+		broadcast:        make(chan *nostr.Event, 1024),
+		queue:            make(chan request, 1024),
+		Hooks:            DefaultHooks(),
+		systemOptions:    newSystemOptions(),
+		websocketOptions: newWebsocketOptions(),
 	}
 
 	for _, opt := range opts {
@@ -130,32 +130,32 @@ func (r *Relay) dispatchLoop(ctx context.Context) {
 			r.shutdown()
 			return
 
-		case client := <-r.registerClient:
+		case client := <-r.register:
 			r.dispatcher.register(client)
 			r.wg.Add(2)
 			go client.read()
 			go client.write()
 			r.On.Connect(client)
 
-		case client := <-r.unregisterClient:
+		case client := <-r.unregister:
 			r.dispatcher.unregister(client)
 			r.On.Disconnect(client)
 
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
-			for range len(r.unregisterClient) {
-				client = <-r.unregisterClient
+			for range len(r.unregister) {
+				client = <-r.unregister
 				r.dispatcher.unregister(client)
 				r.On.Disconnect(client)
 			}
 
-		case sub := <-r.openSubscription:
+		case sub := <-r.open:
 			r.dispatcher.open(sub)
 
-		case subID := <-r.closeSubscription:
+		case subID := <-r.close:
 			r.dispatcher.close(subID)
 
-		case event := <-r.broadcastEvent:
+		case event := <-r.broadcast:
 			r.dispatcher.broadcast(event)
 		}
 	}
@@ -172,7 +172,7 @@ func (r *Relay) shutdown() {
 drainRegister:
 	for {
 		select {
-		case client := <-r.registerClient:
+		case client := <-r.register:
 			if client.isUnregistering.CompareAndSwap(false, true) {
 				close(client.done)
 			}
@@ -194,7 +194,7 @@ drainRegister:
 drainUnregister:
 	for {
 		select {
-		case client := <-r.unregisterClient:
+		case client := <-r.unregister:
 			delete(r.dispatcher.clients, client)
 			r.dispatcher.stats.clients.Add(-1)
 		default:
@@ -203,11 +203,11 @@ drainUnregister:
 	}
 
 	// Drain subscriptions because some clients, or the [Relay.processor]
-	// might be blocked because the channel send to closeSubscription is blocking
+	// might be blocked because the channel send to close is blocking
 drainSubscriptions:
 	for {
 		select {
-		case <-r.closeSubscription:
+		case <-r.close:
 		default:
 			break drainSubscriptions
 		}
@@ -265,7 +265,7 @@ func (r *Relay) process(request request) {
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			r.closeSubscription <- request.UID()
+			r.close <- request.UID()
 			return
 		}
 
@@ -282,19 +282,19 @@ func (r *Relay) process(request request) {
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			}
 
-			r.closeSubscription <- request.UID()
+			r.close <- request.UID()
 			return
 		}
 
 		request.client.send(countResponse{ID: ID, Count: count, Approx: approx})
-		r.closeSubscription <- request.UID()
+		r.close <- request.UID()
 	}
 }
 
 // Broadcast the event to all clients whose subscriptions match it.
 func (r *Relay) Broadcast(e *nostr.Event) error {
 	select {
-	case r.broadcastEvent <- e:
+	case r.broadcast <- e:
 		return nil
 	default:
 		if r.logPressure {
@@ -346,7 +346,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	select {
-	case r.registerClient <- client:
+	case r.register <- client:
 
 	default:
 		r.lastRegistrationFail.Store(time.Now().Unix())
@@ -354,7 +354,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		conn.Close()
 
 		if r.logPressure {
-			log.Printf("failed to registerClient client %s: channel is full", client.ip)
+			log.Printf("failed to register client %s: channel is full", client.ip)
 		}
 	}
 }

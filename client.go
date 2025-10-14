@@ -110,7 +110,7 @@ func (c *client) SendAuth() {
 func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		close(c.done)
-		c.relay.unregisterClient <- c
+		c.relay.unregister <- c
 	}
 }
 
@@ -235,7 +235,7 @@ func (c *client) read() {
 
 			// Block until it's able to send in the closing subscriptions queue,
 			// If this were non-blocking, failure to enqueue would imply a memory leak.
-			c.relay.closeSubscription <- combine(c.id, close.ID)
+			c.relay.close <- combine(c.id, close.ID)
 
 		case "AUTH":
 			auth, err := parseAuth(decoder)
@@ -336,7 +336,7 @@ func (c *client) tryEnqueue(r request) *requestError {
 // If it's full, it returns [ErrOverloaded]
 func (c *client) tryOpen(s Subscription) *requestError {
 	select {
-	case c.relay.openSubscription <- s:
+	case c.relay.open <- s:
 		return nil
 	default:
 		if c.relay.logPressure {
