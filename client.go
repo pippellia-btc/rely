@@ -10,7 +10,7 @@ import (
 
 	"github.com/goccy/go-json"
 
-	"github.com/gorilla/websocket"
+	ws "github.com/gorilla/websocket"
 )
 
 // The Client where the request comes from. All methods are safe for concurrent use.
@@ -76,7 +76,7 @@ type client struct {
 	auther auther
 
 	relay     *Relay
-	conn      *websocket.Conn
+	conn      *ws.Conn
 	responses chan response
 
 	done             chan struct{}
@@ -142,7 +142,7 @@ func (c *client) read() {
 			return
 		}
 
-		if messageType != websocket.TextMessage {
+		if messageType != ws.TextMessage {
 			invalidMessages++
 			c.send(noticeResponse{Message: fmt.Sprintf("%v: received binary message", ErrGeneric)})
 			continue
@@ -235,9 +235,7 @@ func (c *client) read() {
 				continue
 			}
 
-			// Block until it's able to send in the closing subscriptions queue,
-			// If this were non-blocking, failure to enqueue would imply a memory leak.
-			c.relay.close <- sID(join(c.UID(), close.ID))
+			c.relay.closeSubscription(join(c.UID(), close.ID))
 
 		case "AUTH":
 			auth, err := parseAuth(decoder)
@@ -278,18 +276,17 @@ func (c *client) write() {
 		// The select down the line can take a few loops before the disconnection
 		// is triggered, since if multiple cases are available, one is choosen at random.
 		if c.isUnregistering.Load() {
-			c.writeNormalClosure()
+			c.writeCloseNormal()
 			return
 		}
 
 		select {
 		case <-c.done:
-			c.writeNormalClosure()
+			c.writeCloseNormal()
 			return
 
 		case response := <-c.responses:
-			c.setWriteDeadline()
-			if err := c.conn.WriteJSON(response); err != nil {
+			if err := c.writeJSON(response); err != nil {
 				if isUnexpectedClose(err) {
 					log.Printf("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
 				}
@@ -356,21 +353,38 @@ func (c *client) rejectCount(count *countRequest) *requestError {
 	return nil
 }
 
-func (c *client) setWriteDeadline() {
+func (c *client) writeJSON(v any) error {
 	c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
+	return c.conn.WriteJSON(v)
 }
 
-func (c *client) writeNormalClosure() error {
+func (c *client) writeCloseNormal() error {
 	return c.conn.WriteControl(
-		websocket.CloseMessage,
-		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		ws.CloseMessage,
+		ws.FormatCloseMessage(ws.CloseNormalClosure, ""),
+		time.Now().Add(c.relay.writeWait),
+	)
+}
+
+func (c *client) writeCloseGoingAway() error {
+	return c.conn.WriteControl(
+		ws.CloseMessage,
+		ws.FormatCloseMessage(ws.CloseGoingAway, ErrShuttingDown.Error()),
+		time.Now().Add(c.relay.writeWait),
+	)
+}
+
+func (c *client) writeCloseTryLater() error {
+	return c.conn.WriteControl(
+		ws.CloseMessage,
+		ws.FormatCloseMessage(ws.CloseTryAgainLater, ErrOverloaded.Error()),
 		time.Now().Add(c.relay.writeWait),
 	)
 }
 
 func (c *client) writePing() error {
 	return c.conn.WriteControl(
-		websocket.PingMessage,
+		ws.PingMessage,
 		nil,
 		time.Now().Add(c.relay.writeWait),
 	)
