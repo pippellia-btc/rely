@@ -142,13 +142,13 @@ type client struct {
 }
 
 func newClient(conn *websocket.Conn, errChan chan error) *client {
-	switch rg.IntN(3) {
+	switch rg.IntN(4) {
 	case 0:
 		// client that generates EVENTs
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
-			generateRequest:  quickEventRequest,
+			generateRequest:  quickEvent,
 			validateResponse: validateLabel([]string{"OK", "NOTICE"}),
 		}
 
@@ -157,8 +157,17 @@ func newClient(conn *websocket.Conn, errChan chan error) *client {
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
-			generateRequest:  quickReqRequest,
+			generateRequest:  quickReq,
 			validateResponse: validateLabel([]string{"EOSE", "CLOSED", "EVENT", "NOTICE"}),
+		}
+
+	case 2:
+		// client that generates CLOSEs
+		return &client{
+			conn:             conn,
+			errChan:          errChan,
+			generateRequest:  quickClose,
+			validateResponse: validateLabel([]string{"NOTICE"}),
 		}
 
 	default:
@@ -166,7 +175,7 @@ func newClient(conn *websocket.Conn, errChan chan error) *client {
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
-			generateRequest:  quickCountRequest,
+			generateRequest:  quickCount,
 			validateResponse: validateLabel([]string{"CLOSED", "COUNT", "NOTICE"}),
 		}
 	}
@@ -341,7 +350,6 @@ func displayStats(ctx context.Context, r *rely.Relay) {
 	for {
 		select {
 		case <-ctx.Done():
-			clearScreen()
 			return
 
 		case <-ticker.C:

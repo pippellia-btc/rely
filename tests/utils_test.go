@@ -21,20 +21,40 @@ var (
 	seed = uint64(time.Now().Unix())
 	rg   = rand.New(rand.NewPCG(0, seed))
 
-	eventTemplates = make([][]byte, randomSamples)
 	reqTemplates   = make([][]byte, randomSamples)
 	countTemplates = make([][]byte, randomSamples)
+	eventTemplates = make([][]byte, randomSamples)
+	closeTemplates = make([][]byte, randomSamples)
 )
 
 func init() {
 	for i := range randomSamples {
 		reqTemplates[i] = randomReqRequest()
-		eventTemplates[i] = randomEventRequest()
 		countTemplates[i] = randomCountRequest()
+		eventTemplates[i] = randomEventRequest()
+		closeTemplates[i] = randomCloseRequest()
 	}
 }
 
-func quickEventRequest() []byte {
+func quickReq() []byte {
+	i := rg.IntN(randomSamples)
+	template := reqTemplates[i]
+	req := make([]byte, len(template))
+	copy(req, template)
+	modifyBytes(req, 5)
+	return req
+}
+
+func quickCount() []byte {
+	i := rg.IntN(randomSamples)
+	template := countTemplates[i]
+	count := make([]byte, len(template))
+	copy(count, template)
+	modifyBytes(count, 5)
+	return count
+}
+
+func quickEvent() []byte {
 	i := rg.IntN(randomSamples)
 	template := eventTemplates[i]
 	event := make([]byte, len(template))
@@ -47,22 +67,13 @@ func quickEventRequest() []byte {
 	return event
 }
 
-func quickReqRequest() []byte {
+func quickClose() []byte {
 	i := rg.IntN(randomSamples)
-	template := reqTemplates[i]
-	req := make([]byte, len(template))
-	copy(req, template)
-	modifyBytes(req, 5)
-	return req
-}
-
-func quickCountRequest() []byte {
-	i := rg.IntN(randomSamples)
-	template := countTemplates[i]
-	count := make([]byte, len(template))
-	copy(count, template)
-	modifyBytes(count, 5)
-	return count
+	template := closeTemplates[i]
+	close := make([]byte, len(template))
+	copy(close, template)
+	modifyBytes(close, 5)
+	return close
 }
 
 func modifyBytes(buf []byte, locations int) {
@@ -77,19 +88,8 @@ func modifyBytes(buf []byte, locations int) {
 	}
 }
 
-func randomEventRequest() []byte {
-	event := []any{"EVENT", randomEvent()}
-	data, err := json.Marshal(event)
-	if err != nil {
-		panic(fmt.Errorf("failed to marshal event %v: %w", event, err))
-	}
-	return data
-}
-
 func randomReqRequest() []byte {
-	ID := randomString()
-	req := []any{"REQ", ID}
-
+	req := []any{"REQ", randomString()}
 	filters := rg.IntN(10)
 	for range filters {
 		req = append(req, randomFilter())
@@ -103,9 +103,7 @@ func randomReqRequest() []byte {
 }
 
 func randomCountRequest() []byte {
-	ID := randomString()
-	count := []any{"COUNT", ID}
-
+	count := []any{"COUNT", randomString()}
 	filters := rg.IntN(10)
 	for range filters {
 		count = append(count, randomFilter())
@@ -114,6 +112,24 @@ func randomCountRequest() []byte {
 	data, err := json.Marshal(count)
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal count %v: %w", count, err))
+	}
+	return data
+}
+
+func randomEventRequest() []byte {
+	event := []any{"EVENT", randomEvent()}
+	data, err := json.Marshal(event)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal event %v: %w", event, err))
+	}
+	return data
+}
+
+func randomCloseRequest() []byte {
+	close := []any{"CLOSE", randomString()}
+	data, err := json.Marshal(close)
+	if err != nil {
+		panic(fmt.Errorf("failed to marshal close %v: %w", close, err))
 	}
 	return data
 }
