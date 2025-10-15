@@ -355,6 +355,13 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// proceed
 	}
 
+	for _, reject := range r.Reject.Connection {
+		if err := reject(r, req); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	}
+
 	switch {
 	case req.Header.Get("Upgrade") == "websocket":
 		r.ServeWS(w, req)
@@ -370,13 +377,6 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // ServeWS upgrades the http request to a websocket, creates a [client], and registers it with the [Relay].
 // The client will then read and write to the websocket in two separate goroutines, preventing multiple readers/writers.
 func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
-	for _, reject := range r.Reject.Connection {
-		if err := reject(r, req); err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
-			return
-		}
-	}
-
 	conn, err := r.upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		log.Printf("failed to upgrade to websocket: %v", err)
