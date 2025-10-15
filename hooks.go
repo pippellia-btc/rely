@@ -33,18 +33,31 @@ func DefaultHooks() Hooks {
 	}
 }
 
-// RejectHooks define functions that can preemptively reject certain actions
-// before they are processed by the relay. Each function is evaluated in order,
-// and if any function returns an error, the corresponding input (connection, event,
-// request, or count) is rejected immediately.
+// RejectHooks defines optional functions that can preemptively reject
+// certain actions before they are processed by the relay.
 //
-// These hooks allow users to enforce policies, validations, or rate limits
-// before the relay performs any further processing.
+// Each function in a hook slice is evaluated in order. If any function
+// returns a non-nil error, the corresponding input (connection, event,
+// request, or count) is immediately rejected.
+//
+// These hooks are useful for enforcing access policies, validating input,
+// or applying rate limits before the relay performs further processing.
 type RejectHooks struct {
+	// Connection is invoked before establishing a new client connection.
+	// Returning a non-nil error rejects the connection.
 	Connection []func(Stats, *http.Request) error
-	Event      []func(Client, *nostr.Event) error
-	Req        []func(Client, nostr.Filters) error
-	Count      []func(Client, nostr.Filters) error
+
+	// Event is invoked before processing an EVENT message.
+	// Returning a non-nil error rejects the event.
+	Event []func(Client, *nostr.Event) error
+
+	// Req is invoked before processing a REQ message.
+	// Returning a non-nil error rejects the request.
+	Req []func(Client, nostr.Filters) error
+
+	// Count is invoked before processing a NIP-45 COUNT request.
+	// Returning a non-nil error rejects the request.
+	Count []func(Client, nostr.Filters) error
 }
 
 func DefaultRejectHooks() RejectHooks {
@@ -54,13 +67,13 @@ func DefaultRejectHooks() RejectHooks {
 	}
 }
 
-// OnHooks define functions that are called after certain events occur in the relay.
-// They allow users to hook into and customize how the relay reacts to client actions,
-// events, requests, and counts. These functions are invoked after the input has
-// passed the corresponding RejectHooks (if any).
+// OnHooks defines functions invoked after specific relay events occur.
+// These hooks customize how the relay reacts to client actions such as
+// EVENT, REQ, and COUNT messages. Each function is called only after the
+// corresponding input has passed all RejectHooks (if any).
 //
-// OnHooks enable users to implement custom processing, logging, persistence,
-// authorization, or other side effects in response to relay activity.
+// OnHooks are typically used to implement custom processing, persistence,
+// logging, authorization, or other side effects in response to relay activity.
 type OnHooks struct {
 	// Connect runs immediately after a client has been connected and registered.
 	// It is guaranteed to run before the Disconnect hook of the same client.
@@ -83,10 +96,21 @@ type OnHooks struct {
 	//       go longOperation(c)
 	//   }
 	Disconnect func(Client)
-	Auth       func(Client)
-	Event      func(Client, *nostr.Event) error
-	Req        func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
-	Count      func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
+
+	// Auth is called immediately after a client successfully authenticates.
+	// It can be used to load resources tied to the client’s public key or adjust rate limits.
+	Auth func(Client)
+
+	// Event defines how the relay processes an EVENT, for example by storing it in a database.
+	Event func(Client, *nostr.Event) error
+
+	// Req defines how the relay processes a REQ containing one or more filters,
+	// for example by querying the database for matching events.
+	Req func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
+
+	// Count defines how the relay processes NIP-45 COUNT requests.
+	// This hook is optional (= nil). If unset, COUNT requests are rejected with [ErrUnsupportedNIP45].
+	Count func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
 func DefaultOnHooks() OnHooks {
@@ -99,14 +123,15 @@ func DefaultOnHooks() OnHooks {
 	}
 }
 
-// WhenHooks defines functions that are called when a special, non-standard,
-// or exceptional condition occurs during the relay's operation.
-// These hooks are useful for observing and reacting to client misbehavior or
-// non-critical performance issues that fall outside the regular operational flow.
+// WhenHooks defines functions invoked when special, non-standard, or exceptional
+// conditions occur during the relay’s operation.
+//
+// These hooks are useful for detecting and responding to client misbehavior or
+// non-critical performance issues that fall outside the normal operational flow.
 type WhenHooks struct {
-	// GreedyClient is called when the client's response buffer is full,
-	// which happens if the client sends new REQs before reading all responses from previous ones.
-	// This hook is typically used for logging client misbehavior and/or disconnecting.
+	// GreedyClient is invoked when a client’s response buffer becomes full,
+	// typically because it sends new REQs before reading responses from earlier ones.
+	// This hook is commonly used for logging misbehavior or disconnecting the client.
 	GreedyClient func(Client)
 }
 
