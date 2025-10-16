@@ -23,27 +23,6 @@ var (
 	ErrInvalidSubscriptionID = errors.New(`invalid subscription ID`)
 )
 
-// join multiple strings into one, separated by ":".
-func join[T ~string](str T, strs ...T) T {
-	for _, s := range strs {
-		str += ":" + s
-	}
-	return str
-}
-
-// remove the first appearance of str from the list of strs, if present.
-func remove[T ~string](strs []T, str T) []T {
-	for i, v := range strs {
-		if v == str {
-			// release memory
-			last := len(strs) - 1
-			strs[i], strs[last] = strs[last], ""
-			return strs[:last]
-		}
-	}
-	return strs
-}
-
 type request interface {
 	// UID is the unique request identifier that combines relay, client, and user-provided
 	// request ID <relay.uid>:<clientNumber>:<request.ID>

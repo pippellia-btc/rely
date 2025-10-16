@@ -8,6 +8,7 @@ require (
 	github.com/goccy/go-json v0.10.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/nbd-wtf/go-nostr v0.51.8
+	github.com/pippellia-btc/slicex v0.2.5
 )
 
 require (

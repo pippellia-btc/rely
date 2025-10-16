@@ -24,3 +24,12 @@ func (s Subscription) Matches(e *nostr.Event) bool { return s.Filters.Match(e) }
 // sID is the internal representation of a unique subscription identifier, which
 // is identical to [Subscription.UID]. Used only to make the code more readable
 type sID string
+
+// join multiple strings into one, separated by ":".
+// Useful to produce canonical UIDs.
+func join[T ~string](str T, strs ...T) T {
+	for _, s := range strs {
+		str += ":" + s
+	}
+	return str
+}
