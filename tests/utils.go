@@ -27,7 +27,7 @@ var (
 	closeTemplates = make([][]byte, randomSamples)
 )
 
-func init() {
+func generateTemplates() {
 	for i := range randomSamples {
 		reqTemplates[i] = randomReqRequest()
 		countTemplates[i] = randomCountRequest()
@@ -89,10 +89,10 @@ func modifyBytes(buf []byte, locations int) {
 }
 
 func randomReqRequest() []byte {
-	req := []any{"REQ", randomString()}
+	req := []any{"REQ", RandomString()}
 	filters := rg.IntN(10)
 	for range filters {
-		req = append(req, randomFilter())
+		req = append(req, RandomFilter())
 	}
 
 	data, err := json.Marshal(req)
@@ -103,10 +103,10 @@ func randomReqRequest() []byte {
 }
 
 func randomCountRequest() []byte {
-	count := []any{"COUNT", randomString()}
+	count := []any{"COUNT", RandomString()}
 	filters := rg.IntN(10)
 	for range filters {
-		count = append(count, randomFilter())
+		count = append(count, RandomFilter())
 	}
 
 	data, err := json.Marshal(count)
@@ -117,7 +117,7 @@ func randomCountRequest() []byte {
 }
 
 func randomEventRequest() []byte {
-	event := []any{"EVENT", randomEvent()}
+	event := []any{"EVENT", RandomEvent()}
 	data, err := json.Marshal(event)
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal event %v: %w", event, err))
@@ -126,7 +126,7 @@ func randomEventRequest() []byte {
 }
 
 func randomCloseRequest() []byte {
-	close := []any{"CLOSE", randomString()}
+	close := []any{"CLOSE", RandomString()}
 	data, err := json.Marshal(close)
 	if err != nil {
 		panic(fmt.Errorf("failed to marshal close %v: %w", close, err))
@@ -134,12 +134,16 @@ func randomCloseRequest() []byte {
 	return data
 }
 
-func randomEvent() nostr.Event {
+func RandomEvents() []nostr.Event {
+	return RandomSlice(RandomEvent)
+}
+
+func RandomEvent() nostr.Event {
 	event := nostr.Event{
 		CreatedAt: nostr.Timestamp(rg.Int64()),
 		Kind:      rg.Int(),
-		Tags:      randomSlice(randomTag),
-		Content:   randomString(),
+		Tags:      RandomSlice(randomTag),
+		Content:   RandomString(),
 	}
 
 	sk := nostr.GeneratePrivateKey()
@@ -149,30 +153,34 @@ func randomEvent() nostr.Event {
 	return event
 }
 
-func randomFilter() nostr.Filter {
+func RandomFilters() nostr.Filters {
+	return RandomSlice(RandomFilter)
+}
+
+func RandomFilter() nostr.Filter {
 	return nostr.Filter{
-		Since:   randomTimestamp(),
-		Until:   randomTimestamp(),
-		IDs:     randomSlice(randomString),
-		Authors: randomSlice(randomString),
-		Kinds:   randomSlice(rg.Int),
-		Tags:    randomTagMap(),
+		Since:   RandomTimestamp(),
+		Until:   RandomTimestamp(),
+		IDs:     RandomSlice(RandomString),
+		Authors: RandomSlice(RandomString),
+		Kinds:   RandomSlice(rg.Int),
+		Tags:    RandomTagMap(),
 		Limit:   rg.Int(),
-		Search:  randomString(),
+		Search:  RandomString(),
 	}
 }
 
-func randomTagMap() nostr.TagMap {
+func RandomTagMap() nostr.TagMap {
 	size := rg.IntN(100)
 	m := make(nostr.TagMap, size)
 	for range size {
-		m[randomString()] = randomTag()
+		m[RandomString()] = randomTag()
 	}
 	return m
 }
 
-func randomSlice[T any](genFunc func() T) []T {
-	n := rg.IntN(100)
+func RandomSlice[T any](genFunc func() T) []T {
+	n := int(rg.ExpFloat64() / 30)
 	slice := make([]T, n)
 	for i := range n {
 		slice[i] = genFunc()
@@ -184,14 +192,14 @@ func randomTag() nostr.Tag {
 	l := rg.IntN(15)
 	tag := make(nostr.Tag, l)
 	for i := range l {
-		tag[i] = randomString()
+		tag[i] = RandomString()
 	}
 	return tag
 }
 
 const symbols = `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123456789`
 
-func randomString() string {
+func RandomString() string {
 	l := rg.IntN(70)
 	s := make([]byte, l)
 	for i := range l {
@@ -200,7 +208,7 @@ func randomString() string {
 	return string(s)
 }
 
-func randomTimestamp() *nostr.Timestamp {
+func RandomTimestamp() *nostr.Timestamp {
 	timestamp := nostr.Timestamp(rg.Int64())
 	return &timestamp
 }

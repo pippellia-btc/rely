@@ -44,6 +44,7 @@ const (
 )
 
 func TestRandom(t *testing.T) {
+	generateTemplates()
 	start = time.Now()
 	addr := "localhost:3334"
 	errChan := make(chan error, 10)
