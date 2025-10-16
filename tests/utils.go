@@ -158,16 +158,32 @@ func RandomFilters() nostr.Filters {
 }
 
 func RandomFilter() nostr.Filter {
-	return nostr.Filter{
-		Since:   RandomTimestamp(),
-		Until:   RandomTimestamp(),
-		IDs:     RandomSlice(RandomString),
-		Authors: RandomSlice(RandomString),
-		Kinds:   RandomSlice(rg.Int),
-		Tags:    RandomTagMap(),
-		Limit:   rg.Int(),
-		Search:  RandomString(),
+	f := nostr.Filter{}
+	if rg.Float32() < 0.1 {
+		f.IDs = RandomSlice(RandomString)
 	}
+	if rg.Float32() < 0.1 {
+		f.Kinds = RandomSlice(rg.Int)
+	}
+	if rg.Float32() < 0.1 {
+		f.Authors = RandomSlice(RandomString)
+	}
+	if rg.Float32() < 0.1 {
+		f.Tags = RandomTagMap()
+	}
+	if rg.Float32() < 0.1 {
+		f.Since = RandomTimestamp()
+	}
+	if rg.Float32() < 0.1 {
+		f.Until = RandomTimestamp()
+	}
+	if rg.Float32() < 0.1 {
+		f.Limit = rg.Int()
+	}
+	if rg.Float32() < 0.1 {
+		f.Search = RandomString()
+	}
+	return f
 }
 
 func RandomTagMap() nostr.TagMap {
@@ -179,8 +195,16 @@ func RandomTagMap() nostr.TagMap {
 	return m
 }
 
+func RandomSliceN[T any](n int, genFunc func() T) []T {
+	slice := make([]T, n)
+	for i := range n {
+		slice[i] = genFunc()
+	}
+	return slice
+}
+
 func RandomSlice[T any](genFunc func() T) []T {
-	n := int(rg.ExpFloat64() / 30)
+	n := int(rg.ExpFloat64() * 30)
 	slice := make([]T, n)
 	for i := range n {
 		slice[i] = genFunc()
