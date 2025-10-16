@@ -171,8 +171,7 @@ func (r *Relay) shutdown() {
 	log.Printf("shutting down the relay %s...", r.uid)
 	defer log.Printf("relay %s stopped", r.uid)
 
-	// closing the done channel makes [Relay.ServeHTTP] return an error,
-	// and avoids that new clients end up in the registering queue.
+	// closing the done channel stops [Relay.ServeHTTP] from registering new clients.
 	close(r.done)
 
 	// Close the websocket connections of clients yet to be registered.
