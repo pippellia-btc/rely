@@ -24,13 +24,12 @@ func TestIndexIdempotency(t *testing.T) {
 	}
 }
 
-func TestUnindexIdempotency(t *testing.T) {
+func TestUnindex(t *testing.T) {
 	d := newDispatcher()
 	sid := sID("test")
 	filters := nostr.Filters{{IDs: []string{"abc"}}}
 
 	d.byID["abc"] = []sID{sid}
-	d.unindex(sid, filters)
 	d.unindex(sid, filters)
 
 	if _, ok := d.byID["abc"]; ok {

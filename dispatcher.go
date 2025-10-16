@@ -97,37 +97,27 @@ func (d *dispatcher) unindex(sid sID, filters nostr.Filters) {
 		case len(f.IDs) > 0:
 			for _, id := range f.IDs {
 				current := d.byID[id]
-				pos := slices.Index(current, sid)
-
-				if pos >= 0 {
-					if len(current) > 1 {
-						last := len(current) - 1
-						current[pos], current[last] = current[last], ""
-						d.byID[id] = current[:last]
-
-					} else {
-						// last element was removed, so delete the key
-						delete(d.byID, id)
-					}
+				if len(current) <= 1 {
+					delete(d.byID, id)
+					continue
 				}
+
+				pos, last := slices.Index(current, sid), len(current)-1
+				current[pos], current[last] = current[last], ""
+				d.byID[id] = current[:last]
 			}
 
 		case len(f.Authors) > 0:
 			for _, pk := range f.Authors {
 				current := d.byAuthor[pk]
-				pos := slices.Index(current, sid)
-
-				if pos >= 0 {
-					if len(current) > 1 {
-						last := len(current) - 1
-						current[pos], current[last] = current[last], ""
-						d.byAuthor[pk] = current[:last]
-
-					} else {
-						// last element was removed, so delete the key
-						delete(d.byAuthor, pk)
-					}
+				if len(current) <= 1 {
+					delete(d.byAuthor, pk)
+					continue
 				}
+
+				pos, last := slices.Index(current, sid), len(current)-1
+				current[pos], current[last] = current[last], ""
+				d.byAuthor[pk] = current[:last]
 			}
 
 		case len(f.Tags) > 0:
@@ -139,47 +129,34 @@ func (d *dispatcher) unindex(sid sID, filters nostr.Filters) {
 				for _, v := range vals {
 					kv := join(key, v)
 					current := d.byTag[kv]
-					pos := slices.Index(current, sid)
-
-					if pos >= 0 {
-						if len(current) > 1 {
-							last := len(current) - 1
-							current[pos], current[last] = current[last], ""
-							d.byTag[kv] = current[:last]
-
-						} else {
-							// last element was removed, so delete the key
-							delete(d.byTag, kv)
-						}
+					if len(current) <= 1 {
+						delete(d.byTag, kv)
+						continue
 					}
+
+					pos, last := slices.Index(current, sid), len(current)-1
+					current[pos], current[last] = current[last], ""
+					d.byTag[kv] = current[:last]
 				}
 			}
 
 		case len(f.Kinds) > 0:
 			for _, k := range f.Kinds {
 				current := d.byKind[k]
-				pos := slices.Index(current, sid)
-
-				if pos >= 0 {
-					if len(current) > 1 {
-						last := len(current) - 1
-						current[pos], current[last] = current[last], ""
-						d.byKind[k] = current[:last]
-
-					} else {
-						// last element was removed, so delete the key
-						delete(d.byKind, k)
-					}
+				if len(current) <= 1 {
+					delete(d.byKind, k)
+					continue
 				}
+
+				pos, last := slices.Index(current, sid), len(current)-1
+				current[pos], current[last] = current[last], ""
+				d.byKind[k] = current[:last]
 			}
 
 		default:
-			pos := slices.Index(d.others, sid)
-			if pos >= 0 {
-				last := len(d.others) - 1
-				d.others[pos], d.others[last] = d.others[last], ""
-				d.others = d.others[:last]
-			}
+			pos, last := slices.Index(d.others, sid), len(d.others)-1
+			d.others[pos], d.others[last] = d.others[last], ""
+			d.others = d.others[:last]
 		}
 	}
 }
