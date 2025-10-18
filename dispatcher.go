@@ -123,7 +123,7 @@ func (d *dispatcher) broadcast(e *nostr.Event) {
 
 	for _, sID := range candidates {
 		sub := d.subscriptions[sID]
-		if sub.typ == "REQ" && sub.Matches(e) {
+		if sub.Matches(e) {
 			sub.client.send(eventResponse{ID: sub.ID, Event: e})
 		}
 	}

@@ -8,7 +8,6 @@ import (
 
 type Subscription struct {
 	ID      string
-	typ     string // either "REQ" or "COUNT"
 	Filters nostr.Filters
 
 	cancel context.CancelFunc // calling it cancels the context of the associated REQ/COUNT

@@ -307,7 +307,6 @@ func (c *client) handleReq(req *reqRequest) *requestError {
 
 	sub := Subscription{
 		ID:      req.id,
-		typ:     "REQ",
 		Filters: req.Filters,
 		client:  c,
 	}
@@ -339,12 +338,7 @@ func (c *client) handleCount(count *countRequest) *requestError {
 	}
 
 	// count subscriptions have no filters because they must not match new events.
-	sub := Subscription{
-		ID:     count.id,
-		typ:    "COUNT",
-		client: c,
-	}
-
+	sub := Subscription{ID: count.id, client: c}
 	count.ctx, sub.cancel = context.WithCancel(context.Background())
 	count.client = c
 
