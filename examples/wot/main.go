@@ -85,10 +85,7 @@ func main() {
 		return Save(e)
 	}
 
-	addr := "localhost:3335"
-	log.Printf("running relay on %s", addr)
-
-	if err := relay.StartAndServe(ctx, addr); err != nil {
+	if err := relay.StartAndServe(ctx, "localhost:3335"); err != nil {
 		panic(err)
 	}
 }

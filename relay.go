@@ -86,6 +86,7 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	server := &http.Server{Addr: address, Handler: r}
 
 	go func() {
+		r.log.Info("serving the relay", "address", address)
 		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			exitErr <- err
 		}
@@ -111,6 +112,7 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 // See [Relay.StartAndServe] for an example on how to do it.
 // For a proper shutdown process, you have to call [Relay.Wait] before closing your program.
 func (r *Relay) Start(ctx context.Context) {
+	r.log.Info("starting up the relay")
 	r.wg.Add(2)
 	go r.dispatchLoop(ctx)
 	go r.processLoop(ctx)

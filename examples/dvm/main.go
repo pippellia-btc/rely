@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"math/rand/v2"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -35,10 +34,7 @@ func main() {
 
 	relay.On.Event = Process
 
-	addr := "localhost:3334"
-	log.Printf("running relay on %s", addr)
-
-	if err := relay.StartAndServe(ctx, addr); err != nil {
+	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)
 	}
 }

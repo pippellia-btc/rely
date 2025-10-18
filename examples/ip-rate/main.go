@@ -27,10 +27,7 @@ func main() {
 	relay.Reject.Connection = append(relay.Reject.Connection, BadIP)
 	relay.On.Connect = PrintIP
 
-	addr := "localhost:3334"
-	log.Printf("running relay on %s", addr)
-
-	if err := relay.StartAndServe(ctx, addr); err != nil {
+	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)
 	}
 }

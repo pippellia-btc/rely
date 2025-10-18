@@ -30,10 +30,7 @@ func main() {
 	relay.On.Event = Save
 	relay.On.Req = Query
 
-	addr := "localhost:3334"
-	logger.Info("running relay", "address", addr)
-
-	if err := relay.StartAndServe(ctx, addr); err != nil {
+	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)
 	}
 }

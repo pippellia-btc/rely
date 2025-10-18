@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -22,10 +21,7 @@ func main() {
 	relay := rely.NewRelay()
 	relay.Reject.Req = append(relay.Reject.Req, TooMany)
 
-	addr := "localhost:3334"
-	log.Printf("running relay on %s", addr)
-
-	if err := relay.StartAndServe(ctx, addr); err != nil {
+	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)
 	}
 }
