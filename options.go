@@ -2,7 +2,7 @@ package rely
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -38,11 +38,6 @@ type systemOptions struct {
 	// and sent to the client, enforcing per-client backpressure and preventing overproduction of responses.
 	responseLimit int
 
-	// log non-fatal internal conditions caused by clients pressure,
-	// such as dropped events or failed client registrations due to full channels.
-	// Default is true, set it to false with [WithoutPressureLogs].
-	logPressure bool
-
 	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
 	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
 	domain string
@@ -55,7 +50,6 @@ func newSystemOptions() systemOptions {
 	return systemOptions{
 		maxProcessors: 4,
 		responseLimit: 1000,
-		logPressure:   true,
 		info:          newRelayInfo(),
 	}
 }
@@ -73,11 +67,10 @@ func newRelayInfo() []byte {
 	return json
 }
 
-func WithID(id string) Option              { return func(r *Relay) { r.uid = id } }
+func WithLogger(l *slog.Logger) Option     { return func(r *Relay) { r.log = l } }
 func WithMaxProcessors(n int) Option       { return func(r *Relay) { r.maxProcessors = n } }
 func WithClientResponseLimit(n int) Option { return func(r *Relay) { r.responseLimit = n } }
 func WithDomain(d string) Option           { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
-func WithoutPressureLogs() Option          { return func(r *Relay) { r.logPressure = false } }
 func WithQueueCapacity(c int) Option       { return func(r *Relay) { r.process = make(chan request, c) } }
 
 func WithInfo(info nip11.RelayInformationDocument) Option {
@@ -123,10 +116,6 @@ func WithMaxMessageSize(s int64) Option     { return func(r *Relay) { r.maxMessa
 // validate panics if structural parameters are invalid, and logs warnings
 // for non-fatal but potentially misconfigured settings (e.g., missing domain).
 func (r *Relay) validate() {
-	if strings.Contains(r.uid, ":") {
-		panic(`relay uid must not contain ":", which is used as a separator in UIDs`)
-	}
-
 	if r.pingPeriod < 1*time.Second {
 		panic("ping period must be greater than 1s to function reliably")
 	}
@@ -152,6 +141,6 @@ func (r *Relay) validate() {
 	}
 
 	if r.domain == "" {
-		log.Println("WARN: you must set the relay's domain to validate NIP-42 auth")
+		r.log.Warn("you must set the relay's domain to validate NIP-42 auth")
 	}
 }

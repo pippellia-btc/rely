@@ -3,7 +3,7 @@ package rely
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -19,10 +19,10 @@ var (
 )
 
 type Relay struct {
-	uid    string
 	nextID atomic.Int64
 	wg     sync.WaitGroup // for waiting for client's goroutines
 	done   chan struct{}
+	log    *slog.Logger
 
 	dispatcher *dispatcher
 
@@ -53,7 +53,6 @@ type Relay struct {
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		uid:              relayUID(),
 		dispatcher:       newDispatcher(),
 		register:         make(chan *client, 256),
 		unregister:       make(chan *client, 256),
@@ -65,6 +64,7 @@ func NewRelay(opts ...Option) *Relay {
 		systemOptions:    newSystemOptions(),
 		websocketOptions: newWebsocketOptions(),
 		done:             make(chan struct{}),
+		log:              slog.Default(),
 	}
 
 	for _, opt := range opts {
@@ -168,8 +168,8 @@ func (r *Relay) dispatchLoop(ctx context.Context) {
 
 // Shutdown correctly unregisters all connected clients for a safe shutdown.
 func (r *Relay) shutdown() {
-	log.Printf("shutting down the relay %s...", r.uid)
-	defer log.Printf("relay %s stopped", r.uid)
+	r.log.Info("shutting down the relay...")
+	defer r.log.Info("relay stopped")
 
 	// closing the done channel stops [Relay.ServeHTTP] from registering new clients.
 	close(r.done)
@@ -293,9 +293,7 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 	case <-r.done:
 		return ErrShuttingDown
 	default:
-		if r.logPressure {
-			log.Printf("failed to broadcast event with ID %s: %v", e.ID, ErrOverloaded)
-		}
+		r.log.Warn("failed to broadcast event", "id", e.ID, "error", ErrOverloaded)
 		return ErrOverloaded
 	}
 }
@@ -309,9 +307,7 @@ func (r *Relay) tryProcess(rq request) *requestError {
 	case <-r.done:
 		return &requestError{ID: rq.ID(), Err: ErrShuttingDown}
 	default:
-		if r.logPressure {
-			log.Printf("failed to enqueue request %s: %v", rq.UID(), ErrOverloaded)
-		}
+		r.log.Warn("failed to enqueue request", "uid", rq.UID(), "error", ErrOverloaded)
 		return &requestError{ID: rq.ID(), Err: ErrOverloaded}
 	}
 }
@@ -325,9 +321,7 @@ func (r *Relay) tryOpen(s Subscription) *requestError {
 	case <-r.done:
 		return &requestError{ID: s.ID, Err: ErrShuttingDown}
 	default:
-		if r.logPressure {
-			log.Printf("failed to open subscription %s: %v", s.UID(), ErrOverloaded)
-		}
+		r.log.Warn("failed to open subscription", "uid", s.UID(), "error", ErrOverloaded)
 		return &requestError{ID: s.ID, Err: ErrOverloaded}
 	}
 }
@@ -378,12 +372,12 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	conn, err := r.upgrader.Upgrade(w, req, nil)
 	if err != nil {
-		log.Printf("failed to upgrade to websocket: %v", err)
+		r.log.Error("failed to upgrade to websocket", "error", err)
 		return
 	}
 
 	client := &client{
-		id:        r.assignID(),
+		uid:       r.assignID(),
 		ip:        IP(req),
 		auther:    auther{domain: r.domain},
 		relay:     r,
@@ -403,10 +397,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		r.lastRegistrationFail.Store(time.Now().Unix())
 		client.writeCloseTryLater()
 		client.conn.Close()
-
-		if r.logPressure {
-			log.Printf("failed to register client %s: channel is full", client.ip)
-		}
+		r.log.Warn("failed to register client", "ip", client.ip, "error", "channel is full")
 	}
 }
 

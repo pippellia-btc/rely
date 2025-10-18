@@ -24,8 +24,8 @@ var (
 )
 
 type request interface {
-	// UID is the unique request identifier that combines relay, client, and user-provided
-	// request ID <relay.uid>:<clientNumber>:<request.ID>
+	// UID is the unique subscription identifier that combines the [Client.UID]
+	// with the user-provided request ID <Client.UID>:<request.ID>
 	UID() string
 
 	// ID is a unique identifier within the scope of its client.
@@ -41,7 +41,7 @@ type eventRequest struct {
 	Event  *nostr.Event
 }
 
-func (e *eventRequest) UID() string     { return join(e.client.UID(), e.Event.ID) }
+func (e *eventRequest) UID() string     { return join(e.client.uid, e.Event.ID) }
 func (e *eventRequest) ID() string      { return e.Event.ID }
 func (e *eventRequest) IsExpired() bool { return e.client.isUnregistering.Load() }
 
@@ -53,7 +53,7 @@ type reqRequest struct {
 	Filters nostr.Filters
 }
 
-func (r *reqRequest) UID() string     { return join(r.client.UID(), r.id) }
+func (r *reqRequest) UID() string     { return join(r.client.uid, r.id) }
 func (r *reqRequest) ID() string      { return r.id }
 func (r *reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
 
@@ -77,7 +77,7 @@ type countRequest struct {
 	Filters nostr.Filters
 }
 
-func (c *countRequest) UID() string     { return join(c.client.UID(), c.id) }
+func (c *countRequest) UID() string     { return join(c.client.uid, c.id) }
 func (c *countRequest) ID() string      { return c.id }
 func (c *countRequest) IsExpired() bool { return c.ctx.Err() != nil || c.client.isUnregistering.Load() }
 

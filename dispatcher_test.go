@@ -21,7 +21,7 @@ func init() {
 		sub := Subscription{
 			ID:      id,
 			Filters: tests.RandomFilters(),
-			client:  &client{id: id, relay: &Relay{uid: id}},
+			client:  &client{uid: id},
 		}
 
 		testSubs[i] = sub
@@ -30,16 +30,15 @@ func init() {
 
 func TestIndex(t *testing.T) {
 	d := newDispatcher()
-	client := &client{id: "0", relay: &Relay{uid: "x"}}
 	sub := Subscription{
 		ID:      "test",
 		Filters: nostr.Filters{{IDs: []string{"xxx"}}},
-		client:  client,
+		client:  &client{uid: "0"},
 	}
 
 	d.index(sub)
 	sIDs := d.byID["xxx"]
-	expected := []sID{"x:0:test"}
+	expected := []sID{"0:test"}
 
 	if !reflect.DeepEqual(sIDs, expected) {
 		t.Fatalf("expected %v, got %v", expected, sIDs)
@@ -48,15 +47,14 @@ func TestIndex(t *testing.T) {
 
 func TestUnindex(t *testing.T) {
 	d := newDispatcher()
-	client := &client{id: "0", relay: &Relay{uid: "x"}}
 	sub := Subscription{
 		ID:      "test",
 		Filters: nostr.Filters{{IDs: []string{"abc"}}},
-		client:  client,
+		client:  &client{uid: "0"},
 	}
 
 	d.byClient["x:0"] = []sID{"x:0:test"}
-	d.byID["abc"] = []sID{"x:0:test"}
+	d.byID["abc"] = []sID{"0:test"}
 	d.unindex(sub)
 
 	if _, ok := d.byID["abc"]; ok {
@@ -98,6 +96,25 @@ func TestIsLetter(t *testing.T) {
 
 	for _, test := range tests {
 		got := isLetter(test.input)
+		if got != test.expected {
+			t.Fatalf("expected %v, got %v", test.expected, got)
+		}
+	}
+}
+
+func TestJoin(t *testing.T) {
+	tests := []struct {
+		inputs   []string
+		expected string
+	}{
+		{inputs: nil, expected: ""},
+		{inputs: []string{}, expected: ""},
+		{inputs: []string{"ciao"}, expected: "ciao"},
+		{inputs: []string{"ciao", "mamma"}, expected: "ciao:mamma"},
+	}
+
+	for _, test := range tests {
+		got := join(test.inputs...)
 		if got != test.expected {
 			t.Fatalf("expected %v, got %v", test.expected, got)
 		}

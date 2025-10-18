@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -54,7 +55,7 @@ func TestRandom(t *testing.T) {
 		defer cancel()
 
 		relay := rely.NewRelay(
-			rely.WithoutPressureLogs(),
+			rely.WithLogger(slog.New(slog.DiscardHandler)), // discarting all logs
 		)
 
 		relay.On.Connect = dummyOnConnect

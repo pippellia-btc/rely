@@ -2,11 +2,19 @@ package rely
 
 import (
 	"slices"
+	"strings"
 	"sync/atomic"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/slicex"
 )
+
+// sID is the internal representation of a unique subscription identifier, which
+// is identical to [Subscription.UID]. Used only to make the code more readable
+type sID string
+
+// Join multiple strings into one, separated by ":". Useful to produce canonical UIDs.
+func join(strs ...string) string { return strings.Join(strs, ":") }
 
 // Dispatcher is responsible for managing the clients and subscriptions state,
 // essential for efficient broadcasting of events and for a graceful shutdown.

@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"sync/atomic"
 	"time"
 
@@ -17,8 +16,6 @@ import (
 type Client interface {
 	// UID is the unique identified for the client, useful to tie its identity to
 	// external statistics or resources.
-	// Follows the hierarchical pattern <relay.uid>:<clientNumber>, where
-	// clientNumber is assigned automatically after connection.
 	UID() string
 
 	// IP address of the client.
@@ -54,11 +51,12 @@ type Client interface {
 }
 
 // client is a middleman between the websocket connection and the [Relay].
-// It's responsible for parsing and validating the [request]s, and for writing the [response]s.
+// It's responsible for parsing and validating the [request]s,
+// sending them to the [Relay], and for writing the [response]s it receives from it.
 //
-// Lifecycle:
-// The client lifecycle starts in the [Relay.ServeWS] where [client.read] and [client.write] are spawned.
-// The shutdown cycle is as follows:
+// The client lifecycle starts after registration in the [Relay.dispatchLoop],
+// where [client.read] and [client.write] are spawned. The shutdown cycle is as follows:
+//
 // - [client.read] returns
 // - [client.Disconnect] is called
 // - [client.IsUnregistering] is set to true, [client.done] is closed
@@ -71,7 +69,7 @@ type Client interface {
 // - read errors in the [client.read] (automatic)
 // - the call to [client.Disconnect] (automatic or manual)
 type client struct {
-	id     string
+	uid    string
 	ip     string
 	auther auther
 
@@ -84,7 +82,7 @@ type client struct {
 	droppedResponses atomic.Int64
 }
 
-func (c *client) UID() string    { return join(c.relay.uid, c.id) }
+func (c *client) UID() string    { return c.uid }
 func (c *client) IP() string     { return c.ip }
 func (c *client) Pubkey() string { return c.auther.Pubkey() }
 
@@ -137,7 +135,7 @@ func (c *client) read() {
 		messageType, reader, err := c.conn.NextReader()
 		if err != nil {
 			if isUnexpectedClose(err) {
-				log.Printf("unexpected close error from IP %s: %v", c.ip, err)
+				c.relay.log.Info("unexpected close error from IP %s: %v", c.ip, err)
 			}
 			return
 		}
@@ -288,7 +286,7 @@ func (c *client) write() {
 		case response := <-c.responses:
 			if err := c.writeJSON(response); err != nil {
 				if isUnexpectedClose(err) {
-					log.Printf("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
+					c.relay.log.Info("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
 				}
 				return
 			}
@@ -296,7 +294,7 @@ func (c *client) write() {
 		case <-ticker.C:
 			if err := c.writePing(); err != nil {
 				if isUnexpectedClose(err) {
-					log.Printf("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
+					c.relay.log.Info("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
 				}
 				return
 			}

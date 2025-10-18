@@ -15,21 +15,8 @@ type Subscription struct {
 	client *client
 }
 
-// UID is the unique subscription identifier that combines relay, client, and user-provided
-// subscription ID <relay.uid>:<clientNumber>:<subscription.ID>
-func (s Subscription) UID() string { return join(s.client.UID(), s.ID) }
+// UID is the unique subscription identifier that combines the [Client.UID]
+// with the user-provided subscription ID <Client.UID>:<subscription.ID>
+func (s Subscription) UID() string { return join(s.client.uid, s.ID) }
 
 func (s Subscription) Matches(e *nostr.Event) bool { return s.Filters.Match(e) }
-
-// sID is the internal representation of a unique subscription identifier, which
-// is identical to [Subscription.UID]. Used only to make the code more readable
-type sID string
-
-// join multiple strings into one, separated by ":".
-// Useful to produce canonical UIDs.
-func join[T ~string](str T, strs ...T) T {
-	for _, s := range strs {
-		str += ":" + s
-	}
-	return str
-}
