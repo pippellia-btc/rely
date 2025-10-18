@@ -7,6 +7,7 @@ import (
 )
 
 type Subscription struct {
+	uid     string
 	ID      string
 	Filters nostr.Filters
 
@@ -16,6 +17,6 @@ type Subscription struct {
 
 // UID is the unique subscription identifier that combines the [Client.UID]
 // with the user-provided subscription ID <Client.UID>:<subscription.ID>
-func (s Subscription) UID() string { return join(s.client.uid, s.ID) }
+func (s Subscription) UID() string { return s.uid }
 
 func (s Subscription) Matches(e *nostr.Event) bool { return s.Filters.Match(e) }

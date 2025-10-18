@@ -54,7 +54,7 @@ func newDispatcher() *dispatcher {
 
 func (d *dispatcher) register(c *client) {
 	d.clients[c] = struct{}{}
-	d.byClient[c.UID()] = make([]sID, 0, 10)
+	d.byClient[c.uid] = make([]sID, 0, 10)
 	d.stats.clients.Add(1)
 }
 
@@ -62,7 +62,7 @@ func (d *dispatcher) unregister(c *client) {
 	delete(d.clients, c)
 	d.stats.clients.Add(-1)
 
-	sIDs := d.byClient[c.UID()]
+	sIDs := d.byClient[c.uid]
 	for _, id := range sIDs {
 		d.close(id)
 	}
@@ -73,7 +73,7 @@ func (d *dispatcher) open(s Subscription) {
 		return
 	}
 
-	id := sID(s.UID())
+	id := sID(s.uid)
 	old, exists := d.subscriptions[id]
 	if exists {
 		old.cancel()
@@ -130,8 +130,8 @@ func (d *dispatcher) broadcast(e *nostr.Event) {
 }
 
 func (d *dispatcher) index(s Subscription) {
-	sid := sID(s.UID())
-	cid := s.client.UID()
+	sid := sID(s.uid)
+	cid := s.client.uid
 
 	current := d.byClient[cid]
 	d.byClient[cid] = append(current, sid)
@@ -195,8 +195,8 @@ func (d *dispatcher) index(s Subscription) {
 }
 
 func (d *dispatcher) unindex(s Subscription) {
-	sid := sID(s.UID())
-	cid := s.client.UID()
+	sid := sID(s.uid)
+	cid := s.client.uid
 	removeOrDelete(d.byClient, cid, sid)
 
 	for _, f := range s.Filters {

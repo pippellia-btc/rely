@@ -31,7 +31,7 @@ func init() {
 func TestIndex(t *testing.T) {
 	d := newDispatcher()
 	sub := Subscription{
-		ID:      "test",
+		uid:     "0:test",
 		Filters: nostr.Filters{{IDs: []string{"xxx"}}},
 		client:  &client{uid: "0"},
 	}
@@ -48,17 +48,22 @@ func TestIndex(t *testing.T) {
 func TestUnindex(t *testing.T) {
 	d := newDispatcher()
 	sub := Subscription{
-		ID:      "test",
+		uid:     "0:test",
 		Filters: nostr.Filters{{IDs: []string{"abc"}}},
 		client:  &client{uid: "0"},
 	}
 
-	d.byClient["x:0"] = []sID{"x:0:test"}
+	d.byClient["0"] = []sID{"0:test"}
 	d.byID["abc"] = []sID{"0:test"}
+
 	d.unindex(sub)
 
 	if _, ok := d.byID["abc"]; ok {
-		t.Fatalf("expected key 'abc' deleted after double unindex")
+		t.Fatalf("byID[\"abc\"] should have been deleted")
+	}
+
+	if _, ok := d.byClient["0"]; ok {
+		t.Fatalf("byClient[\"0\"] should have been deleted")
 	}
 }
 
