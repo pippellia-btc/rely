@@ -1,6 +1,7 @@
 package rely
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -80,6 +81,7 @@ type client struct {
 	done             chan struct{}
 	isUnregistering  atomic.Bool
 	droppedResponses atomic.Int64
+	invalidMessages  int
 }
 
 func (c *client) UID() string    { return c.uid }
@@ -122,13 +124,12 @@ func (c *client) read() {
 		c.relay.wg.Done()
 	}()
 
-	invalidMessages := 0
 	c.conn.SetReadLimit(c.relay.maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait))
 	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait)); return nil })
 
 	for {
-		if invalidMessages >= 5 {
+		if c.invalidMessages >= 5 {
 			return
 		}
 
@@ -141,7 +142,7 @@ func (c *client) read() {
 		}
 
 		if messageType != ws.TextMessage {
-			invalidMessages++
+			c.invalidMessages++
 			c.send(noticeResponse{Message: fmt.Sprintf("%v: received binary message", ErrGeneric)})
 			continue
 		}
@@ -149,7 +150,7 @@ func (c *client) read() {
 		decoder := json.NewDecoder(reader)
 		label, err := parseLabel(decoder)
 		if err != nil {
-			invalidMessages++
+			c.invalidMessages++
 			c.send(noticeResponse{Message: fmt.Sprintf("%v: %v", ErrGeneric, err)})
 			continue
 		}
@@ -158,87 +159,56 @@ func (c *client) read() {
 		case "EVENT":
 			event, err := parseEvent(decoder)
 			if err != nil {
-				invalidMessages++
+				c.invalidMessages++
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
-			if err := c.rejectEvent(event); err != nil {
-				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
-				continue
-			}
-
-			event.client = c
-			if err := c.relay.tryProcess(event); err != nil {
+			err = c.handleEvent(event)
+			if err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 			}
 
 		case "REQ":
 			req, err := parseReq(decoder)
 			if err != nil {
-				invalidMessages++
+				c.invalidMessages++
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
-			if err := c.rejectReq(req); err != nil {
-				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
-				continue
-			}
-
-			req.client = c
-			sub := req.Subscription()
-
-			if err := c.relay.tryProcess(req); err != nil {
-				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
-				continue
-			}
-
-			if err := c.relay.tryOpen(sub); err != nil {
-				sub.cancel()
+			err = c.handleReq(req)
+			if err != nil {
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 			}
 
 		case "COUNT":
 			count, err := parseCount(decoder)
 			if err != nil {
-				invalidMessages++
+				c.invalidMessages++
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 				continue
 			}
 
-			if err := c.rejectCount(count); err != nil {
-				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
-				continue
-			}
-
-			count.client = c
-			sub := count.Subscription()
-
-			if err := c.relay.tryProcess(count); err != nil {
-				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
-				continue
-			}
-
-			if err := c.relay.tryOpen(sub); err != nil {
-				sub.cancel()
+			err = c.handleCount(count)
+			if err != nil {
 				c.send(closedResponse{ID: err.ID, Reason: err.Error()})
 			}
 
 		case "CLOSE":
 			close, err := parseClose(decoder)
 			if err != nil {
-				invalidMessages++
+				c.invalidMessages++
 				c.send(noticeResponse{Message: err.Error()})
 				continue
 			}
 
-			c.relay.closeSubscription(join(c.UID(), close.ID))
+			c.relay.closeSubscription(join(c.uid, close.ID))
 
 		case "AUTH":
 			auth, err := parseAuth(decoder)
 			if err != nil {
-				invalidMessages++
+				c.invalidMessages++
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
@@ -253,9 +223,24 @@ func (c *client) read() {
 			c.relay.On.Auth(c)
 
 		default:
-			invalidMessages++
+			c.invalidMessages++
 			c.send(noticeResponse{Message: ErrUnsupportedType.Error()})
 		}
+	}
+}
+
+// send a [response] to the client in a non-blocking way.
+// It prevents sending if the client is unregistering.
+func (c *client) send(r response) {
+	if c.isUnregistering.Load() {
+		return
+	}
+
+	select {
+	case c.responses <- r:
+	default:
+		c.droppedResponses.Add(1)
+		c.relay.When.GreedyClient(c)
 	}
 }
 
@@ -302,42 +287,46 @@ func (c *client) write() {
 	}
 }
 
-func (c *client) send(r response) {
-	if c.isUnregistering.Load() {
-		return
-	}
-
-	select {
-	case c.responses <- r:
-	default:
-		c.droppedResponses.Add(1)
-		c.relay.When.GreedyClient(c)
-	}
-}
-
-// rejectEvent wraps the relay Reject.Event functions and makes them accessible to the client.
-func (c *client) rejectEvent(e *eventRequest) *requestError {
+func (c *client) handleEvent(e *eventRequest) *requestError {
 	for _, reject := range c.relay.Reject.Event {
 		if err := reject(c, e.Event); err != nil {
 			return &requestError{ID: e.Event.ID, Err: err}
 		}
 	}
-	return nil
+
+	e.client = c
+	return c.relay.tryProcess(e)
 }
 
-// rejectReq wraps the relay Reject.Req functions and makes them accessible to the client.
-func (c *client) rejectReq(req *reqRequest) *requestError {
+func (c *client) handleReq(req *reqRequest) *requestError {
 	for _, reject := range c.relay.Reject.Req {
 		if err := reject(c, req.Filters); err != nil {
 			return &requestError{ID: req.id, Err: err}
 		}
 	}
+
+	sub := Subscription{
+		ID:      req.id,
+		typ:     "REQ",
+		Filters: req.Filters,
+		client:  c,
+	}
+
+	req.ctx, sub.cancel = context.WithCancel(context.Background())
+	req.client = c
+
+	if err := c.relay.tryProcess(req); err != nil {
+		return err
+	}
+
+	if err := c.relay.tryOpen(sub); err != nil {
+		sub.cancel()
+		return err
+	}
 	return nil
 }
 
-// rejectCount wraps the relay Reject.Count functions and makes them accessible to the client.
-// if relay.On.Count has not been set, an error is returned.
-func (c *client) rejectCount(count *countRequest) *requestError {
+func (c *client) handleCount(count *countRequest) *requestError {
 	if c.relay.On.Count == nil {
 		// nip-45 is optional
 		return &requestError{ID: count.id, Err: ErrUnsupportedNIP45}
@@ -347,6 +336,25 @@ func (c *client) rejectCount(count *countRequest) *requestError {
 		if err := reject(c, count.Filters); err != nil {
 			return &requestError{ID: count.id, Err: err}
 		}
+	}
+
+	// count subscriptions have no filters because they must not match new events.
+	sub := Subscription{
+		ID:     count.id,
+		typ:    "COUNT",
+		client: c,
+	}
+
+	count.ctx, sub.cancel = context.WithCancel(context.Background())
+	count.client = c
+
+	if err := c.relay.tryProcess(count); err != nil {
+		return err
+	}
+
+	if err := c.relay.tryOpen(sub); err != nil {
+		sub.cancel()
+		return err
 	}
 	return nil
 }

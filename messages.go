@@ -57,18 +57,6 @@ func (r *reqRequest) UID() string     { return join(r.client.uid, r.id) }
 func (r *reqRequest) ID() string      { return r.id }
 func (r *reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
 
-// Subscription creates the subscription associated with the [reqRequest].
-func (r *reqRequest) Subscription() Subscription {
-	sub := Subscription{
-		ID:      r.id,
-		typ:     "REQ",
-		Filters: r.Filters,
-		client:  r.client,
-	}
-	r.ctx, sub.cancel = context.WithCancel(context.Background())
-	return sub
-}
-
 type countRequest struct {
 	id  string
 	ctx context.Context // will be cancelled when the subscription is closed
@@ -80,18 +68,6 @@ type countRequest struct {
 func (c *countRequest) UID() string     { return join(c.client.uid, c.id) }
 func (c *countRequest) ID() string      { return c.id }
 func (c *countRequest) IsExpired() bool { return c.ctx.Err() != nil || c.client.isUnregistering.Load() }
-
-// Subscription creates the subscription associated with the [countRequest].
-func (c *countRequest) Subscription() Subscription {
-	sub := Subscription{
-		ID:      c.id,
-		typ:     "COUNT",
-		Filters: c.Filters,
-		client:  c.client,
-	}
-	c.ctx, sub.cancel = context.WithCancel(context.Background())
-	return sub
-}
 
 type closeRequest struct {
 	ID string
