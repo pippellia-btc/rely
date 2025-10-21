@@ -23,14 +23,18 @@ type dispatcher struct {
 	clients       map[*client]struct{}
 	subscriptions map[sID]Subscription
 
+	indexes *dispatcherIndexes
+	stats   dispatcherStats
+}
+
+// DispatcherIndexes allows for fast search of candidate subscription IDs for a specific event.
+// It maintains multiple indexes for all filter fields except search.
+type dispatcherIndexes struct {
 	byClient map[string][]sID
 	byID     map[string][]sID
 	byAuthor map[string][]sID
 	byTag    map[string][]sID
 	byKind   map[int][]sID
-	others   []sID
-
-	stats dispatcherStats
 }
 
 type dispatcherStats struct {
@@ -43,31 +47,39 @@ func newDispatcher() *dispatcher {
 	return &dispatcher{
 		clients:       make(map[*client]struct{}, 1000),
 		subscriptions: make(map[sID]Subscription, 1000),
-		byClient:      make(map[string][]sID, 1000),
-		byID:          make(map[string][]sID, 3000),
-		byAuthor:      make(map[string][]sID, 3000),
-		byTag:         make(map[string][]sID, 3000),
-		byKind:        make(map[int][]sID, 3000),
-		others:        make([]sID, 0, 1000),
+		indexes:       newDispatcherIndexes(),
 	}
 }
 
+func newDispatcherIndexes() *dispatcherIndexes {
+	return &dispatcherIndexes{
+		byClient: make(map[string][]sID, 1000),
+		byID:     make(map[string][]sID, 3000),
+		byAuthor: make(map[string][]sID, 3000),
+		byTag:    make(map[string][]sID, 3000),
+		byKind:   make(map[int][]sID, 3000),
+	}
+}
+
+// Register a client with the dispatcher.
 func (d *dispatcher) register(c *client) {
 	d.clients[c] = struct{}{}
-	d.byClient[c.uid] = make([]sID, 0, 10)
+	d.indexes.byClient[c.uid] = make([]sID, 0, 10)
 	d.stats.clients.Add(1)
 }
 
+// Unregister a client, by closing all of its subscriptions.
 func (d *dispatcher) unregister(c *client) {
 	delete(d.clients, c)
 	d.stats.clients.Add(-1)
 
-	sIDs := d.byClient[c.uid]
+	sIDs := d.indexes.byClient[c.uid]
 	for _, id := range sIDs {
 		d.close(id)
 	}
 }
 
+// Open or overwrite a subscription with the dispatcher.
 func (d *dispatcher) open(s Subscription) {
 	if s.client.isUnregistering.Load() {
 		return
@@ -77,8 +89,8 @@ func (d *dispatcher) open(s Subscription) {
 	old, exists := d.subscriptions[id]
 	if exists {
 		old.cancel()
-		d.unindex(old)
-		d.index(s)
+		d.indexes.remove(old)
+		d.indexes.add(s)
 		d.subscriptions[id] = s
 
 		delta := int64(len(s.Filters) - len(old.Filters))
@@ -86,7 +98,7 @@ func (d *dispatcher) open(s Subscription) {
 		return
 	}
 
-	d.index(s)
+	d.indexes.add(s)
 	d.subscriptions[id] = s
 
 	d.stats.subscriptions.Add(1)
@@ -97,7 +109,7 @@ func (d *dispatcher) close(id sID) {
 	sub, exists := d.subscriptions[id]
 	if exists {
 		sub.cancel()
-		d.unindex(sub)
+		d.indexes.remove(sub)
 		delete(d.subscriptions, id)
 
 		d.stats.subscriptions.Add(-1)
@@ -106,35 +118,24 @@ func (d *dispatcher) close(id sID) {
 }
 
 func (d *dispatcher) broadcast(e *nostr.Event) {
-	candidates := make([]sID, 0, 100)
-	candidates = append(candidates, d.byID[e.ID]...)
-	candidates = append(candidates, d.byAuthor[e.PubKey]...)
+	candidates := d.indexes.candidates(e)
 
-	for _, t := range e.Tags {
-		if len(t) >= 2 && isLetter(t[0]) {
-			kv := join(t[0], t[1])
-			candidates = append(candidates, d.byTag[kv]...)
-		}
-	}
-
-	candidates = append(candidates, d.byKind[e.Kind]...)
-	candidates = append(candidates, d.others...)
-	candidates = slicex.Unique(candidates)
-
-	for _, sID := range candidates {
-		sub := d.subscriptions[sID]
+	for _, id := range candidates {
+		sub := d.subscriptions[id]
 		if sub.Matches(e) {
 			sub.client.send(eventResponse{ID: sub.ID, Event: e})
 		}
 	}
 }
 
-func (d *dispatcher) index(s Subscription) {
+// Add the subscription to the dispatcher indexes, one filter at the time.
+// Filter indexing is assumed to be safe, given that all filters have passed the Reject.Req
+func (i dispatcherIndexes) add(s Subscription) {
 	sid := sID(s.uid)
 	cid := s.client.uid
 
-	current := d.byClient[cid]
-	d.byClient[cid] = append(current, sid)
+	current := i.byClient[cid]
+	i.byClient[cid] = append(current, sid)
 
 	// filter indexing must be idempotent because filters of a subscription
 	// could partially overlap.
@@ -144,22 +145,24 @@ func (d *dispatcher) index(s Subscription) {
 	//	- f2: Authors=[xxx], Kinds=[69]
 	//
 	// If we don't check first, the subscription id would be added twice to byAuthor[xxx].
+	// Using a slice is the fastest for very small sets, which should be the norm
+	// under a normal load.
 
 	for _, f := range s.Filters {
 		switch {
 		case len(f.IDs) > 0:
 			for _, id := range f.IDs {
-				current := d.byID[id]
+				current := i.byID[id]
 				if !slices.Contains(current, sid) {
-					d.byID[id] = append(current, sid)
+					i.byID[id] = append(current, sid)
 				}
 			}
 
 		case len(f.Authors) > 0:
 			for _, pk := range f.Authors {
-				current := d.byAuthor[pk]
+				current := i.byAuthor[pk]
 				if !slices.Contains(current, sid) {
-					d.byAuthor[pk] = append(current, sid)
+					i.byAuthor[pk] = append(current, sid)
 				}
 			}
 
@@ -171,44 +174,43 @@ func (d *dispatcher) index(s Subscription) {
 
 				for _, v := range vals {
 					kv := join(key, v)
-					current := d.byTag[kv]
+					current := i.byTag[kv]
 					if !slices.Contains(current, sid) {
-						d.byTag[kv] = append(current, sid)
+						i.byTag[kv] = append(current, sid)
 					}
 				}
 			}
 
 		case len(f.Kinds) > 0:
 			for _, k := range f.Kinds {
-				current := d.byKind[k]
+				current := i.byKind[k]
 				if !slices.Contains(current, sid) {
-					d.byKind[k] = append(current, sid)
+					i.byKind[k] = append(current, sid)
 				}
 			}
 
-		default:
-			if !slices.Contains(d.others, sid) {
-				d.others = append(d.others, sid)
-			}
+		case f.Since != nil || f.Until != nil:
+			// unsure what to do
 		}
 	}
 }
 
-func (d *dispatcher) unindex(s Subscription) {
+// Remove the subscription from the dispatcher indexes, one filter at the time.
+func (i dispatcherIndexes) remove(s Subscription) {
 	sid := sID(s.uid)
 	cid := s.client.uid
-	removeOrDelete(d.byClient, cid, sid)
+	removeOrDelete(i.byClient, cid, sid)
 
 	for _, f := range s.Filters {
 		switch {
 		case len(f.IDs) > 0:
 			for _, id := range f.IDs {
-				removeOrDelete(d.byID, id, sid)
+				removeOrDelete(i.byID, id, sid)
 			}
 
 		case len(f.Authors) > 0:
 			for _, pk := range f.Authors {
-				removeOrDelete(d.byAuthor, pk, sid)
+				removeOrDelete(i.byAuthor, pk, sid)
 			}
 
 		case len(f.Tags) > 0:
@@ -219,22 +221,35 @@ func (d *dispatcher) unindex(s Subscription) {
 
 				for _, v := range vals {
 					kv := join(key, v)
-					removeOrDelete(d.byTag, kv, sid)
+					removeOrDelete(i.byTag, kv, sid)
 				}
 			}
 
 		case len(f.Kinds) > 0:
 			for _, k := range f.Kinds {
-				removeOrDelete(d.byKind, k, sid)
+				removeOrDelete(i.byKind, k, sid)
 			}
 
-		default:
-			updated, found := remove(d.others, sid)
-			if found {
-				d.others = updated
-			}
+		case f.Since != nil || f.Until != nil:
+			// unsure what to do
 		}
 	}
+}
+
+// Candidates returns a slice of candidate subscription ids that are likely to match the provided event.
+func (i dispatcherIndexes) candidates(e *nostr.Event) []sID {
+	candidates := make([]sID, 0, 100)
+	candidates = append(candidates, i.byID[e.ID]...)
+	candidates = append(candidates, i.byAuthor[e.PubKey]...)
+	candidates = append(candidates, i.byKind[e.Kind]...)
+
+	for _, t := range e.Tags {
+		if len(t) >= 2 && isLetter(t[0]) {
+			kv := join(t[0], t[1])
+			candidates = append(candidates, i.byTag[kv]...)
+		}
+	}
+	return slicex.Unique(candidates)
 }
 
 // removeOrDelete removes a value from the slice m[key] if present.

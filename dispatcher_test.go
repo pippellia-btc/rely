@@ -28,16 +28,16 @@ func init() {
 	}
 }
 
-func TestIndex(t *testing.T) {
-	d := newDispatcher()
+func TestIndexAdd(t *testing.T) {
+	i := newDispatcherIndexes()
 	sub := Subscription{
 		uid:     "0:test",
 		Filters: nostr.Filters{{IDs: []string{"xxx"}}},
 		client:  &client{uid: "0"},
 	}
 
-	d.index(sub)
-	sIDs := d.byID["xxx"]
+	i.add(sub)
+	sIDs := i.byID["xxx"]
 	expected := []sID{"0:test"}
 
 	if !reflect.DeepEqual(sIDs, expected) {
@@ -45,42 +45,42 @@ func TestIndex(t *testing.T) {
 	}
 }
 
-func TestUnindex(t *testing.T) {
-	d := newDispatcher()
+func TestIndexRemove(t *testing.T) {
+	i := newDispatcherIndexes()
 	sub := Subscription{
 		uid:     "0:test",
 		Filters: nostr.Filters{{IDs: []string{"abc"}}},
 		client:  &client{uid: "0"},
 	}
 
-	d.byClient["0"] = []sID{"0:test"}
-	d.byID["abc"] = []sID{"0:test"}
+	i.byClient["0"] = []sID{"0:test"}
+	i.byID["abc"] = []sID{"0:test"}
 
-	d.unindex(sub)
+	i.remove(sub)
 
-	if _, ok := d.byID["abc"]; ok {
+	if _, ok := i.byID["abc"]; ok {
 		t.Fatalf("byID[\"abc\"] should have been deleted")
 	}
 
-	if _, ok := d.byClient["0"]; ok {
+	if _, ok := i.byClient["0"]; ok {
 		t.Fatalf("byClient[\"0\"] should have been deleted")
 	}
 }
 
 func TestIndexingSymmetry(t *testing.T) {
-	d := newDispatcher()
+	i := newDispatcherIndexes()
 	for _, sub := range testSubs {
-		d.index(sub)
+		i.add(sub)
 	}
 
 	slicex.Shuffle(testSubs)
 	for _, sub := range testSubs {
-		d.unindex(sub)
+		i.remove(sub)
 	}
 
-	if len(d.byID) > 0 || len(d.byAuthor) > 0 || len(d.byKind) > 0 || len(d.byTag) > 0 {
+	if len(i.byID) > 0 || len(i.byAuthor) > 0 || len(i.byKind) > 0 || len(i.byTag) > 0 {
 		t.Errorf("expected all maps empty, got byID=%d byAuthor=%d byKind=%d byTag=%d",
-			len(d.byID), len(d.byAuthor), len(d.byKind), len(d.byTag))
+			len(i.byID), len(i.byAuthor), len(i.byKind), len(i.byTag))
 	}
 }
 
@@ -126,22 +126,42 @@ func TestJoin(t *testing.T) {
 	}
 }
 
-func BenchmarkIndex(b *testing.B) {
-	d := newDispatcher()
+func timestamp(unix int64) *nostr.Timestamp {
+	ts := nostr.Timestamp(unix)
+	return &ts
+}
+
+func BenchmarkIndexAdd(b *testing.B) {
+	indexes := newDispatcherIndexes()
 	b.ResetTimer()
 	for i := range b.N {
-		d.index(testSubs[i%testSize])
+		indexes.add(testSubs[i%testSize])
 	}
 }
 
-func BenchmarkUnindex(b *testing.B) {
-	d := newDispatcher()
+func BenchmarkIndexRemove(b *testing.B) {
+	indexes := newDispatcherIndexes()
 	for _, sub := range testSubs {
-		d.index(sub)
+		indexes.add(sub)
 	}
 
 	b.ResetTimer()
 	for i := range b.N {
-		d.unindex(testSubs[i%testSize])
+		indexes.remove(testSubs[i%testSize])
+	}
+}
+
+func BenchmarkIndexCandidates(b *testing.B) {
+	indexes := newDispatcherIndexes()
+	for _, sub := range testSubs {
+		indexes.add(sub)
+	}
+
+	event := tests.RandomEvent()
+	b.Fatal(event)
+
+	b.ResetTimer()
+	for range b.N {
+		indexes.candidates(&event)
 	}
 }
