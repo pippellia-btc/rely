@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/slicex"
@@ -35,6 +36,7 @@ type dispatcherIndexes struct {
 	byAuthor map[string][]sID
 	byTag    map[string][]sID
 	byKind   map[int][]sID
+	byTime   *timeIndex
 }
 
 type dispatcherStats struct {
@@ -58,6 +60,7 @@ func newDispatcherIndexes() *dispatcherIndexes {
 		byAuthor: make(map[string][]sID, 3000),
 		byTag:    make(map[string][]sID, 3000),
 		byKind:   make(map[int][]sID, 3000),
+		byTime:   newTimeIndex(600),
 	}
 }
 
@@ -189,8 +192,8 @@ func (i dispatcherIndexes) add(s Subscription) {
 				}
 			}
 
-		case f.Since != nil || f.Until != nil:
-			// unsure what to do
+		default:
+			i.byTime.Add(f, sid)
 		}
 	}
 }
@@ -230,8 +233,8 @@ func (i dispatcherIndexes) remove(s Subscription) {
 				removeOrDelete(i.byKind, k, sid)
 			}
 
-		case f.Since != nil || f.Until != nil:
-			// unsure what to do
+		default:
+			i.byTime.Remove(f, sid)
 		}
 	}
 }
@@ -242,6 +245,7 @@ func (i dispatcherIndexes) candidates(e *nostr.Event) []sID {
 	candidates = append(candidates, i.byID[e.ID]...)
 	candidates = append(candidates, i.byAuthor[e.PubKey]...)
 	candidates = append(candidates, i.byKind[e.Kind]...)
+	candidates = append(candidates, i.byTime.Candidates(e.CreatedAt)...)
 
 	for _, t := range e.Tags {
 		if len(t) >= 2 && isLetter(t[0]) {
@@ -249,6 +253,7 @@ func (i dispatcherIndexes) candidates(e *nostr.Event) []sID {
 			candidates = append(candidates, i.byTag[kv]...)
 		}
 	}
+
 	return slicex.Unique(candidates)
 }
 
@@ -296,4 +301,177 @@ func isLetter(s string) bool {
 	}
 	c := s[0]
 	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+}
+
+// timeIndex organize [intervalFilter]s into two categories:
+// - current: filters that intersect the (dynamic) time window [now - width, now + width]
+// - future: filters that don't intersect the time window but will in the future.
+//
+// The working assumption is that the vast majority of broadcasted events will have a CreatedAt inside this window.
+// Thanks to this assumption, we can reduce the number of candidates,
+// which drammatically improves speed and memory usage.
+type timeIndex struct {
+	width       int64
+	lastAdvance int64
+	current     []intervalFilter
+	future      []intervalFilter
+}
+
+// newTimeIndex returns a [timeIndex] using the (dynamic) time window [now - width, now + width].
+func newTimeIndex(width int64) *timeIndex {
+	return &timeIndex{
+		width:   width,
+		current: make([]intervalFilter, 0, 1024),
+		future:  make([]intervalFilter, 0, 1024),
+	}
+}
+
+const (
+	beginning int64 = -1 << 63
+	end       int64 = 1<<63 - 1
+)
+
+// intervalFilter represent the since and until fields of a [nostr.Filter],
+// as well as the ID of the subscription of its parent REQ.
+type intervalFilter struct {
+	since, until int64
+	sid          sID
+}
+
+func newIntervalFilter(f nostr.Filter, sid sID) intervalFilter {
+	i := intervalFilter{
+		since: beginning,
+		until: end,
+		sid:   sid,
+	}
+
+	if f.Since != nil {
+		i.since = int64(*f.Since)
+	}
+
+	if f.Until != nil {
+		i.until = int64(*f.Until)
+	}
+	return i
+}
+
+// size returns the number of interval filters in current and future.
+func (t *timeIndex) size() int {
+	return len(t.current) + len(t.future)
+}
+
+// Add a filter and associated subscription ID to the timeIndex.
+func (t *timeIndex) Add(f nostr.Filter, sid sID) {
+	interval := newIntervalFilter(f, sid)
+	t.add(interval)
+}
+
+func (t *timeIndex) add(interval intervalFilter) {
+	if interval.since > interval.until {
+		// the interval bounds are invalid, so don't index
+		return
+	}
+
+	t.advance()
+	now := time.Now().Unix()
+	min := now - t.width
+	max := now + t.width
+
+	if interval.until < min {
+		// assumption: it's unlikely that events this old will be broadcasted,
+		// so we simply don't index this filter.
+		return
+	}
+
+	if interval.since > max {
+		t.future = append(t.future, interval)
+	} else {
+		t.current = append(t.current, interval)
+	}
+}
+
+// Remove the nostr filter with the associated subscription ID from the timeIndex.
+func (t *timeIndex) Remove(f nostr.Filter, sid sID) {
+	interval := newIntervalFilter(f, sid)
+	t.remove(interval)
+}
+
+func (t *timeIndex) remove(interval intervalFilter) {
+	if interval.since > interval.until {
+		// the interval bounds are invalid, so it wasn't indexed
+		return
+	}
+
+	t.advance()
+	max := time.Now().Unix() + t.width
+
+	if interval.since > max {
+		updated, found := remove(t.future, interval)
+		if found {
+			t.future = updated
+		}
+		return
+	}
+
+	updated, found := remove(t.current, interval)
+	if found {
+		t.current = updated
+	}
+}
+
+func (t *timeIndex) Candidates(createdAt nostr.Timestamp) []sID {
+	now := time.Now().Unix()
+	min := now - t.width
+	max := now + t.width
+
+	if int64(createdAt) < min || int64(createdAt) > max {
+		// fast path that avoids returning candidates that will likely be discarted
+		return nil
+	}
+
+	t.advance()
+	return t.currentIDs()
+}
+
+func (t *timeIndex) advance() {
+	now := time.Now().Unix()
+	if now == t.lastAdvance {
+		// only advance once per second, as this is the "resolution" of the unix time
+		return
+	}
+
+	t.lastAdvance = now
+	min := now - t.width
+	max := now + t.width
+
+	// remove all expired intervals from current
+	i := 0
+	for _, interval := range t.current {
+		if interval.until >= min {
+			t.current[i] = interval
+			i++
+		}
+	}
+	t.current = t.current[:i]
+
+	// move intervals from future to current.
+	// assumption: the filter still intersects the time window
+	i = 0
+	for _, interval := range t.future {
+		if interval.since <= max {
+			t.current = append(t.current, interval)
+		} else {
+			t.future[i] = interval
+			i++
+		}
+	}
+	t.future = t.future[:i]
+}
+
+func (t *timeIndex) currentIDs() []sID {
+	IDs := make([]sID, len(t.current))
+	for i := range t.current {
+		IDs[i] = t.current[i].sid
+	}
+	return IDs
 }

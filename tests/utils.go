@@ -159,28 +159,28 @@ func RandomFilters() nostr.Filters {
 
 func RandomFilter() nostr.Filter {
 	f := nostr.Filter{}
-	if rg.Float32() < 0.1 {
+	if rg.Float32() < 0.2 {
 		f.IDs = RandomSlice(RandomString)
 	}
-	if rg.Float32() < 0.1 {
+	if rg.Float32() < 0.2 {
 		f.Kinds = RandomSlice(rg.Int)
 	}
-	if rg.Float32() < 0.1 {
+	if rg.Float32() < 0.2 {
 		f.Authors = RandomSlice(RandomString)
 	}
-	if rg.Float32() < 0.1 {
+	if rg.Float32() < 0.2 {
 		f.Tags = RandomTagMap()
 	}
-	if rg.Float32() < 0.1 {
+	if rg.Float32() < 0.2 {
 		f.Since = RandomTimestamp()
 	}
-	if rg.Float32() < 0.1 {
+	if rg.Float32() < 0.2 {
 		f.Until = RandomTimestamp()
 	}
-	if rg.Float32() < 0.1 {
+	if rg.Float32() < 0.2 {
 		f.Limit = rg.Int()
 	}
-	if rg.Float32() < 0.1 {
+	if rg.Float32() < 0.2 {
 		f.Search = RandomString()
 	}
 	return f
