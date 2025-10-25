@@ -9,6 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/nbd-wtf/go-nostr v0.51.8
 	github.com/pippellia-btc/slicex v0.2.5
+	github.com/pippellia-btc/smallset v0.2.0
 )
 
 require (

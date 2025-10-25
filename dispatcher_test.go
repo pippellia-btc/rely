@@ -10,6 +10,7 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely/tests"
 	"github.com/pippellia-btc/slicex"
+	"github.com/pippellia-btc/smallset"
 )
 
 const testSize = 1000
@@ -38,8 +39,9 @@ func TestIndexAdd(t *testing.T) {
 		client:  &client{uid: "0"},
 	}
 
+	i.byClient["0"] = smallset.New[sID](20)
 	i.add(sub)
-	sIDs := i.byID["xxx"]
+	sIDs := i.byID["xxx"].Items()
 	expected := []sID{"0:test"}
 
 	if !reflect.DeepEqual(sIDs, expected) {
@@ -49,29 +51,27 @@ func TestIndexAdd(t *testing.T) {
 
 func TestIndexRemove(t *testing.T) {
 	i := newDispatcherIndexes()
+	sID := sID("0:test")
 	sub := Subscription{
-		uid:     "0:test",
+		uid:     string(sID),
 		Filters: nostr.Filters{{IDs: []string{"abc"}}},
 		client:  &client{uid: "0"},
 	}
 
-	i.byClient["0"] = []sID{"0:test"}
-	i.byID["abc"] = []sID{"0:test"}
-
+	i.byClient["0"] = smallset.NewFrom(sID)
+	i.byID["abc"] = smallset.NewFrom(sID)
 	i.remove(sub)
 
 	if _, ok := i.byID["abc"]; ok {
 		t.Fatalf("byID[\"abc\"] should have been deleted")
-	}
-
-	if _, ok := i.byClient["0"]; ok {
-		t.Fatalf("byClient[\"0\"] should have been deleted")
 	}
 }
 
 func TestIndexingSymmetry(t *testing.T) {
 	i := newDispatcherIndexes()
 	for _, sub := range testSubs {
+		cid := sub.client.uid
+		i.byClient[cid] = smallset.New[sID](20)
 		i.add(sub)
 	}
 
@@ -181,6 +181,11 @@ func timestamp(unix int64) *nostr.Timestamp {
 
 func BenchmarkIndexAdd(b *testing.B) {
 	indexes := newDispatcherIndexes()
+	for _, sub := range testSubs {
+		cid := sub.client.uid
+		indexes.byClient[cid] = smallset.New[sID](20)
+	}
+
 	b.ResetTimer()
 	for i := range b.N {
 		indexes.add(testSubs[i%testSize])
@@ -190,6 +195,8 @@ func BenchmarkIndexAdd(b *testing.B) {
 func BenchmarkIndexRemove(b *testing.B) {
 	indexes := newDispatcherIndexes()
 	for _, sub := range testSubs {
+		cid := sub.client.uid
+		indexes.byClient[cid] = smallset.New[sID](20)
 		indexes.add(sub)
 	}
 
@@ -202,6 +209,8 @@ func BenchmarkIndexRemove(b *testing.B) {
 func BenchmarkIndexCandidates(b *testing.B) {
 	indexes := newDispatcherIndexes()
 	for _, sub := range testSubs {
+		cid := sub.client.uid
+		indexes.byClient[cid] = smallset.New[sID](20)
 		indexes.add(sub)
 	}
 

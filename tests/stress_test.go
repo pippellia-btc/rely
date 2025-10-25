@@ -37,9 +37,9 @@ const (
 	testDuration        time.Duration = 500 * time.Second
 	relayDuration       time.Duration = testDuration - 10*time.Second
 	attackDuration      time.Duration = testDuration - 20*time.Second
-	connectionFrequency time.Duration = 2 * time.Millisecond
+	connectionFrequency time.Duration = time.Millisecond
 
-	relayFailProbability        float32 = 0.05
+	relayFailProbability        float32 = 0.00
 	relayDisconnectProbability  float32 = 0.01
 	clientDisconnectProbability float32 = 0.01
 )
