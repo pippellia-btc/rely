@@ -1,13 +1,12 @@
 package rely
 
 import (
-	"slices"
+	"cmp"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
-	"github.com/pippellia-btc/slicex"
 	"github.com/pippellia-btc/smallset"
 )
 
@@ -123,9 +122,7 @@ func (d *dispatcher) close(id sID) {
 }
 
 func (d *dispatcher) broadcast(e *nostr.Event) {
-	candidates := d.indexes.candidates(e)
-
-	for _, id := range candidates {
+	for _, id := range d.indexes.candidates(e) {
 		sub := d.subscriptions[id]
 		if sub.Matches(e) {
 			sub.client.send(eventResponse{ID: sub.ID, Event: e})
@@ -284,65 +281,29 @@ func (i dispatcherIndexes) remove(s Subscription) {
 
 // Candidates returns a slice of candidate subscription ids that are likely to match the provided event.
 func (i dispatcherIndexes) candidates(e *nostr.Event) []sID {
-	candidates := make([]sID, 0, 100)
+	candidates := make([]*smallset.Ordered[sID], 0, 10)
 	if subs, ok := i.byID[e.ID]; ok {
-		candidates = append(candidates, subs.Items()...)
+		candidates = append(candidates, subs)
 	}
 	if subs, ok := i.byAuthor[e.PubKey]; ok {
-		candidates = append(candidates, subs.Items()...)
+		candidates = append(candidates, subs)
 	}
 	if subs, ok := i.byKind[e.Kind]; ok {
-		candidates = append(candidates, subs.Items()...)
+		candidates = append(candidates, subs)
+	}
+	if subs, ok := i.byTime.Candidates(e.CreatedAt); ok {
+		candidates = append(candidates, subs)
 	}
 
 	for _, t := range e.Tags {
 		if len(t) >= 2 && isLetter(t[0]) {
 			kv := join(t[0], t[1])
 			if subs, ok := i.byTag[kv]; ok {
-				candidates = append(candidates, subs.Items()...)
+				candidates = append(candidates, subs)
 			}
 		}
 	}
-
-	candidates = append(candidates, i.byTime.Candidates(e.CreatedAt)...)
-	return slicex.Unique(candidates)
-}
-
-// removeOrDelete removes a value from the slice m[key] if present.
-// If the resulting slice is empty, the key is deleted from the map.
-func removeOrDelete[K comparable, V comparable](m map[K][]V, key K, val V) {
-	current := m[key]
-	updated, found := remove(current, val)
-	if !found {
-		return
-	}
-
-	if len(updated) == 0 {
-		delete(m, key)
-		return
-	}
-
-	m[key] = updated
-}
-
-// remove searches for element `e` in slice `s` and removes it if present.
-// It returns the updated slice and a boolean indicating whether removal occurred.
-// It zeroes the slot of the removed element for GC safety.
-func remove[E comparable](s []E, e E) (result []E, found bool) {
-	pos := slices.Index(s, e)
-	if pos < 0 {
-		return s, false
-	}
-
-	if len(s) == 1 {
-		// the last element is going to be removed
-		return nil, true
-	}
-
-	var zero E
-	last := len(s) - 1
-	s[pos], s[last] = s[last], zero
-	return s[:last], true
+	return smallset.Merge(candidates...).Items()
 }
 
 // isLetter returns whether the string is a single letter (a-z or A-Z).
@@ -364,16 +325,16 @@ func isLetter(s string) bool {
 type timeIndex struct {
 	width       int64
 	lastAdvance int64
-	current     []intervalFilter
-	future      []intervalFilter
+	current     *smallset.Custom[intervalFilter]
+	future      *smallset.Custom[intervalFilter]
 }
 
 // newTimeIndex returns a [timeIndex] using the (dynamic) time window [now - width, now + width].
 func newTimeIndex(width int64) *timeIndex {
 	return &timeIndex{
 		width:   width,
-		current: make([]intervalFilter, 0, 1024),
-		future:  make([]intervalFilter, 0, 1024),
+		current: smallset.NewCustom(sortByUntil, 1024),
+		future:  smallset.NewCustom(sortBySince, 1024),
 	}
 }
 
@@ -389,17 +350,46 @@ type intervalFilter struct {
 	sid          sID
 }
 
+// IsInvalid returns whether the interval's bound are inverted.
+func (i intervalFilter) IsInvalid() bool {
+	return i.since > i.until
+}
+
+// sortBySince is a comparison function that sorts [intervalFilter]s by their since.
+// If they have the same since, then we compare them by their unique id to avoid
+// incorrectly deduplicating them.
+func sortBySince(i1, i2 intervalFilter) int {
+	if i1.since < i2.since {
+		return -1
+	}
+	if i1.since > i2.since {
+		return 1
+	}
+	return cmp.Compare(i1.sid, i2.sid)
+}
+
+// sortByUntil is a comparison function that sorts [intervalFilter]s by their until.
+// If they have the same until, then we compare them by their unique id to avoid
+// incorrectly deduplicating them.
+func sortByUntil(i1, i2 intervalFilter) int {
+	if i1.until < i2.until {
+		return -1
+	}
+	if i1.until > i2.until {
+		return 1
+	}
+	return cmp.Compare(i1.sid, i2.sid)
+}
+
 func newIntervalFilter(f nostr.Filter, sid sID) intervalFilter {
 	i := intervalFilter{
 		since: beginning,
 		until: end,
 		sid:   sid,
 	}
-
 	if f.Since != nil {
 		i.since = int64(*f.Since)
 	}
-
 	if f.Until != nil {
 		i.until = int64(*f.Until)
 	}
@@ -408,7 +398,7 @@ func newIntervalFilter(f nostr.Filter, sid sID) intervalFilter {
 
 // size returns the number of interval filters in current and future.
 func (t *timeIndex) size() int {
-	return len(t.current) + len(t.future)
+	return t.current.Size() + t.future.Size()
 }
 
 // Add a filter and associated subscription ID to the timeIndex.
@@ -418,12 +408,11 @@ func (t *timeIndex) Add(f nostr.Filter, sid sID) {
 }
 
 func (t *timeIndex) add(interval intervalFilter) {
-	if interval.since > interval.until {
-		// the interval bounds are invalid, so don't index
+	t.advance()
+	if interval.IsInvalid() {
 		return
 	}
 
-	t.advance()
 	now := time.Now().Unix()
 	min := now - t.width
 	max := now + t.width
@@ -435,9 +424,9 @@ func (t *timeIndex) add(interval intervalFilter) {
 	}
 
 	if interval.since > max {
-		t.future = append(t.future, interval)
+		t.future.Add(interval)
 	} else {
-		t.current = append(t.current, interval)
+		t.current.Add(interval)
 	}
 }
 
@@ -448,46 +437,41 @@ func (t *timeIndex) Remove(f nostr.Filter, sid sID) {
 }
 
 func (t *timeIndex) remove(interval intervalFilter) {
-	if interval.since > interval.until {
-		// the interval bounds are invalid, so it wasn't indexed
-		return
-	}
-
 	t.advance()
-	max := time.Now().Unix() + t.width
-
-	if interval.since > max {
-		updated, found := remove(t.future, interval)
-		if found {
-			t.future = updated
-		}
+	if interval.IsInvalid() {
 		return
 	}
 
-	updated, found := remove(t.current, interval)
-	if found {
-		t.current = updated
-	}
+	t.current.Remove(interval)
+	t.future.Remove(interval)
 }
 
-func (t *timeIndex) Candidates(createdAt nostr.Timestamp) []sID {
+// Candidates returns the set of subscription IDs that are likely to match
+// the event with the provided creation time.
+// It returns whether it found any candidates.
+func (t *timeIndex) Candidates(createdAt nostr.Timestamp) (*smallset.Ordered[sID], bool) {
+	t.advance()
 	now := time.Now().Unix()
 	min := now - t.width
 	max := now + t.width
 
 	if int64(createdAt) < min || int64(createdAt) > max {
-		// fast path that avoids returning candidates that will likely be discarted
-		return nil
+		// fast path that avoids returning candidates that will likely be false-positives
+		return nil, false
 	}
 
-	t.advance()
-	return t.currentIDs()
+	IDs := t.currentIDs()
+	if len(IDs) == 0 {
+		return nil, false
+	}
+
+	return smallset.NewFrom[sID](IDs...), true
 }
 
 func (t *timeIndex) advance() {
 	now := time.Now().Unix()
 	if now == t.lastAdvance {
-		// only advance once per second, as this is the "resolution" of the unix time
+		// advance only once per second, as this is the "resolution" of the unix time
 		return
 	}
 
@@ -495,34 +479,23 @@ func (t *timeIndex) advance() {
 	min := now - t.width
 	max := now + t.width
 
-	// remove all expired intervals from current
-	i := 0
-	for _, interval := range t.current {
-		if interval.until >= min {
-			t.current[i] = interval
-			i++
-		}
-	}
-	t.current = t.current[:i]
-
 	// move intervals from future to current.
-	// assumption: the filter still intersects the time window
-	i = 0
-	for _, interval := range t.future {
-		if interval.since <= max {
-			t.current = append(t.current, interval)
-		} else {
-			t.future[i] = interval
-			i++
+	for _, interval := range t.future.Ascend() {
+		if interval.since > max {
+			break
 		}
+
+		t.current.Add(interval)
 	}
-	t.future = t.future[:i]
+
+	t.future.RemoveBefore(intervalFilter{since: max + 1})
+	t.current.RemoveBefore(intervalFilter{until: min})
 }
 
 func (t *timeIndex) currentIDs() []sID {
-	IDs := make([]sID, len(t.current))
-	for i := range t.current {
-		IDs[i] = t.current[i].sid
+	IDs := make([]sID, t.current.Size())
+	for i, interval := range t.current.Ascend() {
+		IDs[i] = interval.sid
 	}
 	return IDs
 }

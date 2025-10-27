@@ -2,7 +2,6 @@ package rely
 
 import (
 	"reflect"
-	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -119,12 +118,12 @@ func TestTimeIndexAdd(t *testing.T) {
 			index := newTimeIndex(512)
 			index.add(test.interval)
 
-			inCurrent := slices.Contains(index.current, test.interval)
+			inCurrent := index.current.Contains(test.interval)
 			if inCurrent != test.inCurrent {
 				t.Fatalf("expected %v, got %v; current %v", test.inCurrent, inCurrent, index.current)
 			}
 
-			inFuture := slices.Contains(index.future, test.interval)
+			inFuture := index.future.Contains(test.interval)
 			if inFuture != test.inFuture {
 				t.Fatalf("expected %v, got %v; future %v", test.inFuture, inFuture, index.future)
 			}
