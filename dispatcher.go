@@ -465,7 +465,7 @@ func (t *timeIndex) Candidates(createdAt nostr.Timestamp) (*smallset.Ordered[sID
 		return nil, false
 	}
 
-	return smallset.NewFrom[sID](IDs...), true
+	return smallset.NewFrom(IDs...), true
 }
 
 func (t *timeIndex) advance() {
@@ -489,7 +489,7 @@ func (t *timeIndex) advance() {
 	}
 
 	t.future.RemoveBefore(intervalFilter{since: max + 1})
-	t.current.RemoveBefore(intervalFilter{until: min})
+	t.current.RemoveBefore(intervalFilter{until: min + 1})
 }
 
 func (t *timeIndex) currentIDs() []sID {
