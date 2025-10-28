@@ -11,7 +11,7 @@ import (
 )
 
 // sID is the internal representation of a unique subscription identifier, which
-// is identical to [Subscription.UID]. Used only to make the code more readable
+// is identical to [subscription.UID]. Used only to make the code more readable
 type sID string
 
 // Join multiple strings into one, separated by ":". Useful to produce canonical UIDs.
@@ -22,7 +22,7 @@ func join(strs ...string) string { return strings.Join(strs, ":") }
 // Its methods are not safe for concurrent use, and must be syncronized externally.
 type dispatcher struct {
 	clients       map[*client]struct{}
-	subscriptions map[sID]Subscription
+	subscriptions map[sID]subscription
 
 	indexes *dispatcherIndexes
 	stats   dispatcherStats
@@ -48,7 +48,7 @@ type dispatcherStats struct {
 func newDispatcher() *dispatcher {
 	return &dispatcher{
 		clients:       make(map[*client]struct{}, 1000),
-		subscriptions: make(map[sID]Subscription, 1000),
+		subscriptions: make(map[sID]subscription, 1000),
 		indexes:       newDispatcherIndexes(),
 	}
 }
@@ -84,7 +84,7 @@ func (d *dispatcher) unregister(c *client) {
 }
 
 // Open or overwrite a subscription with the dispatcher.
-func (d *dispatcher) open(s Subscription) {
+func (d *dispatcher) open(s subscription) {
 	if s.client.isUnregistering.Load() {
 		return
 	}
@@ -97,7 +97,7 @@ func (d *dispatcher) open(s Subscription) {
 		d.indexes.add(s)
 		d.subscriptions[id] = s
 
-		delta := int64(len(s.Filters) - len(old.Filters))
+		delta := int64(len(s.filters) - len(old.filters))
 		d.stats.filters.Add(delta)
 		return
 	}
@@ -106,7 +106,7 @@ func (d *dispatcher) open(s Subscription) {
 	d.subscriptions[id] = s
 
 	d.stats.subscriptions.Add(1)
-	d.stats.filters.Add(int64(len(s.Filters)))
+	d.stats.filters.Add(int64(len(s.filters)))
 }
 
 func (d *dispatcher) close(id sID) {
@@ -117,7 +117,7 @@ func (d *dispatcher) close(id sID) {
 		delete(d.subscriptions, id)
 
 		d.stats.subscriptions.Add(-1)
-		d.stats.filters.Add(-int64(len(sub.Filters)))
+		d.stats.filters.Add(-int64(len(sub.filters)))
 	}
 }
 
@@ -125,7 +125,7 @@ func (d *dispatcher) broadcast(e *nostr.Event) {
 	for _, id := range d.indexes.candidates(e) {
 		sub := d.subscriptions[id]
 		if sub.Matches(e) {
-			sub.client.send(eventResponse{ID: sub.ID, Event: e})
+			sub.client.send(eventResponse{ID: sub.id, Event: e})
 		}
 	}
 }
@@ -136,12 +136,12 @@ func (d *dispatcher) broadcast(e *nostr.Event) {
 // The subs in the byClient index is not checked before insertion, because it must be
 // managed at a higher level in the [dispatcher.register] and [dispatcher.unregister] to avoid multiple
 // creation/deletion during the life-time of the client.
-func (i dispatcherIndexes) add(s Subscription) {
+func (i dispatcherIndexes) add(s subscription) {
 	sid := sID(s.uid)
 	cid := s.client.uid
 	i.byClient[cid].Add(sid)
 
-	for _, f := range s.Filters {
+	for _, f := range s.filters {
 		switch {
 		case len(f.IDs) > 0:
 			for _, id := range f.IDs {
@@ -207,12 +207,12 @@ func (i dispatcherIndexes) add(s Subscription) {
 // This is not true for subs in the byClient index, which is created and deleted
 // in the [dispatcher.register] and [dispatcher.unregister] to avoid multiple
 // creation/deletion during the life-time of the client.
-func (i dispatcherIndexes) remove(s Subscription) {
+func (i dispatcherIndexes) remove(s subscription) {
 	sid := sID(s.uid)
 	cid := s.client.uid
 	i.byClient[cid].Remove(sid)
 
-	for _, f := range s.Filters {
+	for _, f := range s.filters {
 		switch {
 		case len(f.IDs) > 0:
 			for _, id := range f.IDs {

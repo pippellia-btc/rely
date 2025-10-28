@@ -30,7 +30,7 @@ type Relay struct {
 
 	register   chan *client
 	unregister chan *client
-	open       chan Subscription
+	open       chan subscription
 	close      chan sID
 	broadcast  chan *nostr.Event
 	process    chan request
@@ -56,7 +56,7 @@ func NewRelay(opts ...Option) *Relay {
 		dispatcher:       newDispatcher(),
 		register:         make(chan *client, 256),
 		unregister:       make(chan *client, 256),
-		open:             make(chan Subscription, 256),
+		open:             make(chan subscription, 256),
 		close:            make(chan sID, 256),
 		broadcast:        make(chan *nostr.Event, 1024),
 		process:          make(chan request, 1024),
@@ -316,15 +316,15 @@ func (r *Relay) tryProcess(rq request) *requestError {
 
 // tryOpen tries to add the subscription to the open subscription queue of the relay.
 // If it's full, it returns [ErrOverloaded] inside the [requestError]
-func (r *Relay) tryOpen(s Subscription) *requestError {
+func (r *Relay) tryOpen(s subscription) *requestError {
 	select {
 	case r.open <- s:
 		return nil
 	case <-r.done:
-		return &requestError{ID: s.ID, Err: ErrShuttingDown}
+		return &requestError{ID: s.id, Err: ErrShuttingDown}
 	default:
 		r.log.Warn("failed to open subscription", "uid", s.UID(), "error", ErrOverloaded)
-		return &requestError{ID: s.ID, Err: ErrOverloaded}
+		return &requestError{ID: s.id, Err: ErrOverloaded}
 	}
 }
 

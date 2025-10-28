@@ -27,7 +27,7 @@ type Client interface {
 	Pubkey() string
 
 	// Subscriptions returns the currently active "REQ" subscriptions of the client.
-	// Subscriptions() []Subscription
+	// Subscriptions() []subscription
 
 	// SendNotice to the client, useful for greeting, warnings and other informational messages.
 	SendNotice(string)
@@ -88,7 +88,7 @@ func (c *client) UID() string    { return c.uid }
 func (c *client) IP() string     { return c.ip }
 func (c *client) Pubkey() string { return c.auther.Pubkey() }
 
-// func (c *client) Subscriptions() []Subscription { return c.subscriptions.List() }
+// func (c *client) Subscriptions() []subscription { return c.subscriptions.List() }
 func (c *client) DroppedResponses() int  { return int(c.droppedResponses.Load()) }
 func (c *client) RemainingCapacity() int { return cap(c.responses) - len(c.responses) }
 
@@ -305,10 +305,10 @@ func (c *client) handleReq(req *reqRequest) *requestError {
 		}
 	}
 
-	sub := Subscription{
+	sub := subscription{
 		uid:     join(c.uid, req.id),
-		ID:      req.id,
-		Filters: req.Filters,
+		id:      req.id,
+		filters: req.Filters,
 		client:  c,
 	}
 
@@ -339,9 +339,9 @@ func (c *client) handleCount(count *countRequest) *requestError {
 	}
 
 	// count subscriptions have no filters because they must not match new events.
-	sub := Subscription{
+	sub := subscription{
 		uid:    join(c.uid, count.id),
-		ID:     count.id,
+		id:     count.id,
 		client: c,
 	}
 

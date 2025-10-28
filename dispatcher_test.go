@@ -15,15 +15,15 @@ import (
 
 const testSize = 1000
 
-var testSubs []Subscription
+var testSubs []subscription
 
 func init() {
-	testSubs = make([]Subscription, testSize)
+	testSubs = make([]subscription, testSize)
 	for i := range testSize {
 		id := strconv.Itoa(i)
-		sub := Subscription{
-			ID:      id,
-			Filters: tests.RandomFilters(),
+		sub := subscription{
+			id:      id,
+			filters: tests.RandomFilters(),
 			client:  &client{uid: id},
 		}
 
@@ -33,9 +33,9 @@ func init() {
 
 func TestIndexAdd(t *testing.T) {
 	i := newDispatcherIndexes()
-	sub := Subscription{
+	sub := subscription{
 		uid:     "0:test",
-		Filters: nostr.Filters{{IDs: []string{"xxx"}}},
+		filters: nostr.Filters{{IDs: []string{"xxx"}}},
 		client:  &client{uid: "0"},
 	}
 
@@ -52,9 +52,9 @@ func TestIndexAdd(t *testing.T) {
 func TestIndexRemove(t *testing.T) {
 	i := newDispatcherIndexes()
 	sID := sID("0:test")
-	sub := Subscription{
+	sub := subscription{
 		uid:     string(sID),
-		Filters: nostr.Filters{{IDs: []string{"abc"}}},
+		filters: nostr.Filters{{IDs: []string{"abc"}}},
 		client:  &client{uid: "0"},
 	}
 
@@ -289,7 +289,7 @@ func BenchmarkTimeIndexAdd(b *testing.B) {
 	for i := range b.N {
 		sub := testSubs[i%testSize]
 		sid := sID(sub.UID())
-		for _, f := range sub.Filters {
+		for _, f := range sub.filters {
 			t.Add(f, sid)
 		}
 	}
@@ -299,7 +299,7 @@ func BenchmarkTimeIndexRemove(b *testing.B) {
 	t := newTimeIndex(512)
 	for _, sub := range testSubs {
 		sid := sID(sub.UID())
-		for _, f := range sub.Filters {
+		for _, f := range sub.filters {
 			t.Add(f, sid)
 		}
 	}
@@ -308,7 +308,7 @@ func BenchmarkTimeIndexRemove(b *testing.B) {
 	for i := range b.N {
 		sub := testSubs[i%testSize]
 		sid := sID(sub.UID())
-		for _, f := range sub.Filters {
+		for _, f := range sub.filters {
 			t.Remove(f, sid)
 		}
 	}
@@ -318,7 +318,7 @@ func BenchmarkTimeIndexCandidates(b *testing.B) {
 	t := newTimeIndex(512)
 	for _, sub := range testSubs {
 		sid := sID(sub.UID())
-		for _, f := range sub.Filters {
+		for _, f := range sub.filters {
 			t.Add(f, sid)
 		}
 	}

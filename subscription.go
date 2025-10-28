@@ -6,10 +6,10 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
-type Subscription struct {
+type subscription struct {
 	uid     string
-	ID      string
-	Filters nostr.Filters
+	id      string
+	filters nostr.Filters
 
 	cancel context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
 	client *client
@@ -17,6 +17,6 @@ type Subscription struct {
 
 // UID is the unique subscription identifier that combines the [Client.UID]
 // with the user-provided subscription ID <Client.UID>:<subscription.ID>
-func (s Subscription) UID() string { return s.uid }
+func (s subscription) UID() string { return s.uid }
 
-func (s Subscription) Matches(e *nostr.Event) bool { return s.Filters.Match(e) }
+func (s subscription) Matches(e *nostr.Event) bool { return s.filters.Match(e) }
