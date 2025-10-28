@@ -19,10 +19,10 @@ var (
 )
 
 type Relay struct {
-	nextID atomic.Int64
-	wg     sync.WaitGroup // for waiting for client's goroutines
-	done   chan struct{}
-	log    *slog.Logger
+	nextClient atomic.Int64
+	wg         sync.WaitGroup // for waiting for client's goroutines
+	done       chan struct{}
+	log        *slog.Logger
 
 	dispatcher *dispatcher
 
