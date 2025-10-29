@@ -374,13 +374,14 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	client := &client{
-		uid:       r.assignID(),
-		ip:        IP(req),
-		auther:    auther{domain: r.domain},
-		relay:     r,
-		conn:      conn,
-		responses: make(chan response, r.responseLimit),
-		done:      make(chan struct{}),
+		uid:         r.assignID(),
+		ip:          IP(req),
+		connectedAt: time.Now(),
+		auther:      auther{domain: r.domain},
+		relay:       r,
+		conn:        conn,
+		responses:   make(chan response, r.responseLimit),
+		done:        make(chan struct{}),
 	}
 
 	select {

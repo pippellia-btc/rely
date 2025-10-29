@@ -26,8 +26,15 @@ type Client interface {
 	// To initiate the authentication, call [Client.SendAuth].
 	Pubkey() string
 
-	// Subscriptions returns the currently active "REQ" subscriptions of the client.
-	// Subscriptions() []subscription
+	// ConnectedAt returns the moment in time the client connected.
+	ConnectedAt() time.Time
+
+	// Age returns the time passed since the client connected.
+	// Short for time.Since(client.ConnectedAt())
+	Age() time.Duration
+
+	// Subscriptions returns the currently active [Subscription]s of the client.
+	// Subscriptions() []Subscription
 
 	// SendNotice to the client, useful for greeting, warnings and other informational messages.
 	SendNotice(string)
@@ -70,9 +77,10 @@ type Client interface {
 // - read errors in the [client.read] (automatic)
 // - the call to [client.Disconnect] (automatic or manual)
 type client struct {
-	uid    string
-	ip     string
-	auther auther
+	uid         string
+	ip          string
+	connectedAt time.Time
+	auther      auther
 
 	relay     *Relay
 	conn      *ws.Conn
@@ -84,9 +92,11 @@ type client struct {
 	invalidMessages  int
 }
 
-func (c *client) UID() string    { return c.uid }
-func (c *client) IP() string     { return c.ip }
-func (c *client) Pubkey() string { return c.auther.Pubkey() }
+func (c *client) UID() string            { return c.uid }
+func (c *client) IP() string             { return c.ip }
+func (c *client) Pubkey() string         { return c.auther.Pubkey() }
+func (c *client) ConnectedAt() time.Time { return c.connectedAt }
+func (c *client) Age() time.Duration     { return time.Since(c.connectedAt) }
 
 // func (c *client) Subscriptions() []subscription { return c.subscriptions.List() }
 func (c *client) DroppedResponses() int  { return int(c.droppedResponses.Load()) }
