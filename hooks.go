@@ -106,11 +106,12 @@ type OnHooks struct {
 
 	// Req defines how the relay processes a REQ containing one or more filters,
 	// for example by querying the database for matching events.
+	// The provided context is canceled if the client sends the corresponding CLOSE message.
 	Req func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
 
 	// Count defines how the relay processes NIP-45 COUNT requests.
 	// This hook is optional (= nil). If unset, COUNT requests are rejected with [ErrUnsupportedNIP45].
-	Count func(context.Context, Client, nostr.Filters) (count int64, approx bool, err error)
+	Count func(Client, nostr.Filters) (count int64, approx bool, err error)
 }
 
 func DefaultOnHooks() OnHooks {

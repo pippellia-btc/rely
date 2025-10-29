@@ -58,16 +58,14 @@ func (r *reqRequest) ID() string      { return r.id }
 func (r *reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
 
 type countRequest struct {
-	id  string
-	ctx context.Context // will be cancelled when the subscription is closed
-
-	client  *client
+	id      string
 	Filters nostr.Filters
+	client  *client
 }
 
 func (c *countRequest) UID() string     { return join(c.client.uid, c.id) }
 func (c *countRequest) ID() string      { return c.id }
-func (c *countRequest) IsExpired() bool { return c.ctx.Err() != nil || c.client.isUnregistering.Load() }
+func (c *countRequest) IsExpired() bool { return c.client.isUnregistering.Load() }
 
 type closeRequest struct {
 	ID string

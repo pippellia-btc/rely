@@ -11,7 +11,7 @@ type subscription struct {
 	id      string
 	filters nostr.Filters
 
-	cancel context.CancelFunc // calling it cancels the context of the associated REQ/COUNT
+	cancel context.CancelFunc // calling it cancels the context of the associated REQ
 	client *client
 }
 

@@ -271,14 +271,9 @@ func (r *Relay) processOne(request request) {
 		request.client.send(eoseResponse{ID: ID})
 
 	case *countRequest:
-		count, approx, err := r.On.Count(request.ctx, request.client, request.Filters)
+		count, approx, err := r.On.Count(request.client, request.Filters)
 		if err != nil {
-			if request.ctx.Err() == nil {
-				// error not caused by the user's CLOSE
-				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
-			}
-
-			r.closeSubscription(request.UID())
+			request.client.send(closedResponse{ID: ID, Reason: err.Error()})
 			return
 		}
 

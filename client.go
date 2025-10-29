@@ -338,25 +338,8 @@ func (c *client) handleCount(count *countRequest) *requestError {
 		}
 	}
 
-	// count subscriptions have no filters because they must not match new events.
-	sub := subscription{
-		uid:    join(c.uid, count.id),
-		id:     count.id,
-		client: c,
-	}
-
-	count.ctx, sub.cancel = context.WithCancel(context.Background())
 	count.client = c
-
-	if err := c.relay.tryProcess(count); err != nil {
-		return err
-	}
-
-	if err := c.relay.tryOpen(sub); err != nil {
-		sub.cancel()
-		return err
-	}
-	return nil
+	return c.relay.tryProcess(count)
 }
 
 func (c *client) writeJSON(v any) error {
