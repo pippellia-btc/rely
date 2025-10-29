@@ -306,10 +306,11 @@ func (c *client) handleReq(req *reqRequest) *requestError {
 	}
 
 	sub := subscription{
-		uid:     join(c.uid, req.id),
-		id:      req.id,
-		filters: req.Filters,
-		client:  c,
+		uid:       join(c.uid, req.id),
+		id:        req.id,
+		filters:   req.Filters,
+		createdAt: time.Now(),
+		client:    c,
 	}
 
 	req.ctx, sub.cancel = context.WithCancel(context.Background())
