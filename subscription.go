@@ -24,10 +24,10 @@ type Subscription interface {
 	// Matches returns whether any of the subscription's filters match the provided event.
 	Matches(*nostr.Event) bool
 
-	// CreatedAt returns the moment in time the subscription was created.
+	// CreatedAt returns the time when the subscription was created.
 	CreatedAt() time.Time
 
-	// Age returns the time passed since the subscription was created.
+	// Age returns how long ago the subscription was created.
 	// Short for time.Since(subscription.CreatedAt())
 	Age() time.Duration
 

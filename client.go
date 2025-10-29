@@ -26,10 +26,10 @@ type Client interface {
 	// To initiate the authentication, call [Client.SendAuth].
 	Pubkey() string
 
-	// ConnectedAt returns the moment in time the client connected.
+	// ConnectedAt returns the time when the client connected.
 	ConnectedAt() time.Time
 
-	// Age returns the time passed since the client connected.
+	// Age returns how long the client has been connected.
 	// Short for time.Since(client.ConnectedAt())
 	Age() time.Duration
 

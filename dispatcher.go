@@ -11,7 +11,7 @@ import (
 )
 
 // sID is the internal representation of a unique subscription identifier, which
-// is identical to [subscription.UID]. Used only to make the code more readable
+// is identical to [subscription.uid]. Used only to make the code more readable
 type sID string
 
 // Join multiple strings into one, separated by ":". Useful to produce canonical UIDs.
@@ -19,7 +19,7 @@ func join(strs ...string) string { return strings.Join(strs, ":") }
 
 // Dispatcher is responsible for managing the clients and subscriptions state,
 // essential for efficient broadcasting of events and for a graceful shutdown.
-// Its methods are not safe for concurrent use, and must be syncronized externally.
+// Its methods are *not* safe for concurrent use, and must be syncronized externally.
 type dispatcher struct {
 	clients       map[*client]struct{}
 	subscriptions map[sID]subscription
@@ -109,6 +109,7 @@ func (d *dispatcher) open(s subscription) {
 	d.stats.filters.Add(int64(len(s.filters)))
 }
 
+// Close the subscription with the provided ID, if present.
 func (d *dispatcher) close(id sID) {
 	sub, exists := d.subscriptions[id]
 	if exists {
