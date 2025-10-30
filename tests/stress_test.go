@@ -144,8 +144,8 @@ type client struct {
 }
 
 func newClient(conn *websocket.Conn, errChan chan error) *client {
-	switch rg.IntN(4) {
-	case 0:
+	switch rg.IntN(10) {
+	case 0, 1:
 		// client that generates EVENTs
 		return &client{
 			conn:             conn,
@@ -154,7 +154,7 @@ func newClient(conn *websocket.Conn, errChan chan error) *client {
 			validateResponse: validateLabel([]string{"OK", "NOTICE"}),
 		}
 
-	case 1:
+	case 2, 3, 4, 5, 6:
 		// client that generates REQs
 		return &client{
 			conn:             conn,
@@ -163,22 +163,22 @@ func newClient(conn *websocket.Conn, errChan chan error) *client {
 			validateResponse: validateLabel([]string{"EOSE", "CLOSED", "EVENT", "NOTICE"}),
 		}
 
-	case 2:
-		// client that generates CLOSEs
-		return &client{
-			conn:             conn,
-			errChan:          errChan,
-			generateRequest:  quickClose,
-			validateResponse: validateLabel([]string{"NOTICE"}),
-		}
-
-	default:
+	case 7, 8:
 		// client that generates COUNTs
 		return &client{
 			conn:             conn,
 			errChan:          errChan,
 			generateRequest:  quickCount,
 			validateResponse: validateLabel([]string{"CLOSED", "COUNT", "NOTICE"}),
+		}
+
+	default:
+		// client that generates CLOSEs
+		return &client{
+			conn:             conn,
+			errChan:          errChan,
+			generateRequest:  quickClose,
+			validateResponse: validateLabel([]string{"NOTICE"}),
 		}
 	}
 }
