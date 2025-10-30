@@ -85,6 +85,7 @@ type client struct {
 	invalidMessages  int
 	droppedResponses atomic.Int64
 
+	// pointer to parent relay, which must only be used to read settings/hooks or send to channels
 	relay     *Relay
 	conn      *ws.Conn
 	responses chan response
@@ -131,7 +132,7 @@ type subRequest struct {
 func (c *client) Subscriptions() []Subscription {
 	reply := make(chan []Subscription)
 	request := subRequest{client: c, reply: reply}
-	c.relay.viewSubs <- request
+	c.relay.dispatcher.viewSubs <- request
 	return <-reply
 }
 

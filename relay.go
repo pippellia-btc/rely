@@ -19,6 +19,7 @@ var (
 )
 
 type Relay struct {
+	clients    map[*client]struct{}
 	nextClient atomic.Int64
 	wg         sync.WaitGroup // for waiting for client's goroutines
 	done       chan struct{}
@@ -30,10 +31,6 @@ type Relay struct {
 
 	register   chan *client
 	unregister chan *client
-	open       chan subscription
-	close      chan sID
-	viewSubs   chan subRequest
-	broadcast  chan *nostr.Event
 	process    chan request
 
 	Hooks
@@ -54,13 +51,9 @@ type Relay struct {
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		dispatcher:       newDispatcher(),
+		clients:          make(map[*client]struct{}, 1000),
 		register:         make(chan *client, 256),
 		unregister:       make(chan *client, 256),
-		open:             make(chan subscription, 256),
-		close:            make(chan sID, 256),
-		broadcast:        make(chan *nostr.Event, 1024),
-		viewSubs:         make(chan subRequest, 256),
 		process:          make(chan request, 1024),
 		Hooks:            DefaultHooks(),
 		systemOptions:    newSystemOptions(),
@@ -68,6 +61,8 @@ func NewRelay(opts ...Option) *Relay {
 		done:             make(chan struct{}),
 		log:              slog.Default(),
 	}
+
+	r.dispatcher = newDispatcher(r)
 
 	for _, opt := range opts {
 		opt(r)
@@ -115,8 +110,9 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 // For a proper shutdown process, you have to call [Relay.Wait] before closing your program.
 func (r *Relay) Start(ctx context.Context) {
 	r.log.Info("starting up the relay")
-	r.wg.Add(2)
-	go r.dispatchLoop(ctx)
+	r.wg.Add(3)
+	go r.run(ctx)
+	go r.dispatcher.Run()
 	go r.processLoop(ctx)
 }
 
@@ -128,9 +124,7 @@ func (r *Relay) Wait() {
 	r.wg.Wait()
 }
 
-// The dispatchLoop coordinates the registration and unregistration of clients,
-// and the broadcasting of events.
-func (r *Relay) dispatchLoop(ctx context.Context) {
+func (r *Relay) run(ctx context.Context) {
 	defer r.wg.Done()
 
 	for {
@@ -140,35 +134,25 @@ func (r *Relay) dispatchLoop(ctx context.Context) {
 			return
 
 		case client := <-r.register:
-			r.dispatcher.register(client)
+			r.clients[client] = struct{}{}
 			r.wg.Add(2)
 			go client.read()
 			go client.write()
 			r.On.Connect(client)
 
 		case client := <-r.unregister:
-			r.dispatcher.unregister(client)
+			delete(r.clients, client)
+			r.dispatcher.closeAll <- cID(client.uid)
 			r.On.Disconnect(client)
 
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
 			// on the channel send when many disconnections occur at the same time.
 			for range len(r.unregister) {
 				client = <-r.unregister
-				r.dispatcher.unregister(client)
+				delete(r.clients, client)
+				r.dispatcher.closeAll <- cID(client.uid)
 				r.On.Disconnect(client)
 			}
-
-		case sub := <-r.open:
-			r.dispatcher.open(sub)
-
-		case subID := <-r.close:
-			r.dispatcher.close(subID)
-
-		case event := <-r.broadcast:
-			r.dispatcher.broadcast(event)
-
-		case request := <-r.viewSubs:
-			request.reply <- r.dispatcher.viewSubs(request.client)
 		}
 	}
 }
@@ -178,7 +162,8 @@ func (r *Relay) shutdown() {
 	r.log.Info("shutting down the relay...")
 	defer r.log.Info("relay stopped")
 
-	// closing the done channel stops [Relay.ServeHTTP] from registering new clients.
+	// Closing the done channel stops [Relay.ServeHTTP] from registering new clients.
+	// It also signals the [dispatcher.Run] and [processor.Run] to return.
 	close(r.done)
 
 	// Close the websocket connections of clients yet to be registered.
@@ -195,10 +180,9 @@ drainRegister:
 
 	// Remove clients in the map not in the unregistering queue.
 	// It's important to distinguish to avoid double closing the client.done.
-	for client := range r.dispatcher.clients {
+	for client := range r.clients {
 		if client.isUnregistering.CompareAndSwap(false, true) {
 			close(client.done)
-			r.dispatcher.unregister(client)
 		}
 	}
 
@@ -207,8 +191,7 @@ drainRegister:
 drainUnregister:
 	for {
 		select {
-		case client := <-r.unregister:
-			r.dispatcher.unregister(client)
+		case <-r.unregister:
 		default:
 			break drainUnregister
 		}
@@ -290,7 +273,7 @@ func (r *Relay) processOne(request request) {
 // Broadcast the event to all clients whose subscriptions match it.
 func (r *Relay) Broadcast(e *nostr.Event) error {
 	select {
-	case r.broadcast <- e:
+	case r.dispatcher.broadcast <- e:
 		return nil
 	case <-r.done:
 		return ErrShuttingDown
@@ -318,7 +301,7 @@ func (r *Relay) tryProcess(rq request) *requestError {
 // If it's full, it returns [ErrOverloaded] inside the [requestError]
 func (r *Relay) tryOpen(s subscription) *requestError {
 	select {
-	case r.open <- s:
+	case r.dispatcher.open <- s:
 		return nil
 	case <-r.done:
 		return &requestError{ID: s.id, Err: ErrShuttingDown}
@@ -332,7 +315,7 @@ func (r *Relay) tryOpen(s subscription) *requestError {
 // or the relay shuts down. It's blocking because failure to enqueue implies a memory leak.
 func (r *Relay) closeSubscription(sid string) {
 	select {
-	case r.close <- sID(sid):
+	case r.dispatcher.close <- sID(sid):
 		return
 	case <-r.done:
 		return

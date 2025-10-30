@@ -68,14 +68,14 @@ func TestIndexRemove(t *testing.T) {
 func TestIndexingSymmetry(t *testing.T) {
 	i := newDispatcherIndexes()
 	for _, sub := range testSubs {
-		cid := sub.client.uid
+		cid := cID(sub.client.uid)
 		i.byClient[cid] = smallset.New[sID](20)
 		i.add(sub)
 	}
 
 	slicex.Shuffle(testSubs)
 	for _, sub := range testSubs {
-		cid := sub.client.uid
+		cid := cID(sub.client.uid)
 		i.remove(sub)
 		delete(i.byClient, cid)
 	}
@@ -135,11 +135,6 @@ func timestamp(unix int64) *nostr.Timestamp {
 
 func BenchmarkIndexAdd(b *testing.B) {
 	indexes := newDispatcherIndexes()
-	for _, sub := range testSubs {
-		cid := sub.client.uid
-		indexes.byClient[cid] = smallset.New[sID](20)
-	}
-
 	b.ResetTimer()
 	for i := range b.N {
 		indexes.add(testSubs[i%testSize])
@@ -149,8 +144,6 @@ func BenchmarkIndexAdd(b *testing.B) {
 func BenchmarkIndexRemove(b *testing.B) {
 	indexes := newDispatcherIndexes()
 	for _, sub := range testSubs {
-		cid := sub.client.uid
-		indexes.byClient[cid] = smallset.New[sID](20)
 		indexes.add(sub)
 	}
 
@@ -163,13 +156,10 @@ func BenchmarkIndexRemove(b *testing.B) {
 func BenchmarkIndexCandidates(b *testing.B) {
 	indexes := newDispatcherIndexes()
 	for _, sub := range testSubs {
-		cid := sub.client.uid
-		indexes.byClient[cid] = smallset.New[sID](20)
 		indexes.add(sub)
 	}
 
 	event := tests.RandomEvent()
-
 	b.ResetTimer()
 	for range b.N {
 		indexes.candidates(&event)

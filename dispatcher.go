@@ -12,24 +12,34 @@ import (
 // is identical to [subscription.uid]. Used only to make the code more readable
 type sID string
 
+// cID is the internal representation of a unique client identifier, which
+// is identical to [client.uid]. Used only to make the code more readable
+type cID string
+
 // Join multiple strings into one, separated by ":". Useful to produce canonical UIDs.
 func join(strs ...string) string { return strings.Join(strs, ":") }
 
-// Dispatcher is responsible for managing the clients and subscriptions state,
-// essential for efficient broadcasting of events and for a graceful shutdown.
-// Its methods are *not* safe for concurrent use, and must be syncronized externally.
+// Dispatcher is responsible for managing the subscriptions state and the indexes,
+// essential for efficient broadcasting of events.
 type dispatcher struct {
-	clients       map[*client]struct{}
 	subscriptions map[sID]subscription
+	indexes       *dispatcherIndexes
+	stats         dispatcherStats
 
-	indexes *dispatcherIndexes
-	stats   dispatcherStats
+	open      chan subscription
+	close     chan sID
+	closeAll  chan cID
+	viewSubs  chan subRequest
+	broadcast chan *nostr.Event
+
+	// pointer to parent relay, which must only be used to read settings/hooks or send to channels
+	relay *Relay
 }
 
 // DispatcherIndexes allows for fast search of candidate subscription IDs for a specific event.
-// It maintains multiple indexes for all filter fields except search.
+// It maintains indexes for all filter fields except search.
 type dispatcherIndexes struct {
-	byClient map[string]*smallset.Ordered[sID]
+	byClient map[cID]*smallset.Ordered[sID]
 	byID     map[string]*smallset.Ordered[sID]
 	byAuthor map[string]*smallset.Ordered[sID]
 	byTag    map[string]*smallset.Ordered[sID]
@@ -43,17 +53,22 @@ type dispatcherStats struct {
 	filters       atomic.Int64
 }
 
-func newDispatcher() *dispatcher {
+func newDispatcher(relay *Relay) *dispatcher {
 	return &dispatcher{
-		clients:       make(map[*client]struct{}, 1000),
 		subscriptions: make(map[sID]subscription, 1000),
 		indexes:       newDispatcherIndexes(),
+		open:          make(chan subscription, 256),
+		close:         make(chan sID, 256),
+		closeAll:      make(chan cID, 256),
+		broadcast:     make(chan *nostr.Event, 256),
+		viewSubs:      make(chan subRequest, 256),
+		relay:         relay,
 	}
 }
 
 func newDispatcherIndexes() *dispatcherIndexes {
 	return &dispatcherIndexes{
-		byClient: make(map[string]*smallset.Ordered[sID], 1000),
+		byClient: make(map[cID]*smallset.Ordered[sID], 1000),
 		byID:     make(map[string]*smallset.Ordered[sID], 3000),
 		byAuthor: make(map[string]*smallset.Ordered[sID], 3000),
 		byTag:    make(map[string]*smallset.Ordered[sID], 3000),
@@ -62,27 +77,45 @@ func newDispatcherIndexes() *dispatcherIndexes {
 	}
 }
 
-// Register a client with the dispatcher.
-func (d *dispatcher) register(c *client) {
-	d.clients[c] = struct{}{}
-	d.indexes.byClient[c.uid] = smallset.New[sID](20)
-	d.stats.clients.Add(1)
-}
+// Run syncronizes all access to the subscriptions map and the inverted indexes.
+func (d *dispatcher) Run() {
+	defer d.relay.wg.Done()
 
-// Unregister a client, by closing all of its subscriptions.
-func (d *dispatcher) unregister(c *client) {
-	delete(d.clients, c)
-	d.stats.clients.Add(-1)
+	for {
+		select {
+		case <-d.relay.done:
+			d.Clear()
+			return
 
-	subs := d.indexes.byClient[c.uid]
-	for _, id := range subs.Items() {
-		d.close(id)
+		case sub := <-d.open:
+			d.Open(sub)
+
+		case subID := <-d.close:
+			d.Close(subID)
+
+		case cID := <-d.closeAll:
+			subs, ok := d.indexes.byClient[cID]
+			if !ok {
+				break
+			}
+
+			for _, id := range subs.Items() {
+				d.Close(id)
+			}
+			delete(d.indexes.byClient, cID)
+
+		case request := <-d.viewSubs:
+			subs := d.SubscriptionsOf(request.client)
+			request.reply <- subs
+
+		case event := <-d.broadcast:
+			d.Broadcast(event)
+		}
 	}
-	delete(d.indexes.byClient, c.uid)
 }
 
 // Open or overwrite a subscription with the dispatcher.
-func (d *dispatcher) open(s subscription) {
+func (d *dispatcher) Open(s subscription) {
 	if s.client.isUnregistering.Load() {
 		return
 	}
@@ -108,7 +141,7 @@ func (d *dispatcher) open(s subscription) {
 }
 
 // Close the subscription with the provided ID, if present.
-func (d *dispatcher) close(id sID) {
+func (d *dispatcher) Close(id sID) {
 	sub, exists := d.subscriptions[id]
 	if exists {
 		sub.cancel()
@@ -120,8 +153,9 @@ func (d *dispatcher) close(id sID) {
 	}
 }
 
-func (d *dispatcher) viewSubs(c *client) []Subscription {
-	IDs := d.indexes.byClient[c.uid]
+// SubscriptionsOf returns the currently active subscriptions of the client with the provided ID.
+func (d *dispatcher) SubscriptionsOf(c *client) []Subscription {
+	IDs := d.indexes.byClient[cID(c.uid)]
 	subs := make([]Subscription, IDs.Size())
 	for i, id := range IDs.Ascend() {
 		subs[i] = d.subscriptions[id]
@@ -129,13 +163,25 @@ func (d *dispatcher) viewSubs(c *client) []Subscription {
 	return subs
 }
 
-func (d *dispatcher) broadcast(e *nostr.Event) {
+func (d *dispatcher) Broadcast(e *nostr.Event) {
 	for _, id := range d.indexes.candidates(e) {
 		sub := d.subscriptions[id]
 		if sub.Matches(e) {
 			sub.client.send(eventResponse{ID: sub.id, Event: e})
 		}
 	}
+}
+
+// Clear explicitly sets all large index maps to nil to break references,
+// so the garbage collector can immediately reclaim the memory.
+func (d *dispatcher) Clear() {
+	d.subscriptions = nil
+	d.indexes.byClient = nil
+	d.indexes.byID = nil
+	d.indexes.byAuthor = nil
+	d.indexes.byKind = nil
+	d.indexes.byTag = nil
+	d.indexes.byTime = nil
 }
 
 // Add the subscription to the dispatcher indexes, one filter at the time.
@@ -146,8 +192,14 @@ func (d *dispatcher) broadcast(e *nostr.Event) {
 // creation/deletion during the life-time of the client.
 func (i dispatcherIndexes) add(s subscription) {
 	sid := sID(s.uid)
-	cid := s.client.uid
-	i.byClient[cid].Add(sid)
+	cid := cID(s.client.uid)
+
+	subs, ok := i.byClient[cid]
+	if !ok {
+		i.byClient[cid] = smallset.NewFrom(sid)
+	} else {
+		subs.Add(sid)
+	}
 
 	for _, f := range s.filters {
 		switch {
@@ -156,10 +208,9 @@ func (i dispatcherIndexes) add(s subscription) {
 				subs, ok := i.byID[id]
 				if !ok {
 					i.byID[id] = smallset.NewFrom(sid)
-					continue
+				} else {
+					subs.Add(sid)
 				}
-
-				subs.Add(sid)
 			}
 
 		case len(f.Authors) > 0:
@@ -167,10 +218,9 @@ func (i dispatcherIndexes) add(s subscription) {
 				subs, ok := i.byAuthor[pk]
 				if !ok {
 					i.byAuthor[pk] = smallset.NewFrom(sid)
-					continue
+				} else {
+					subs.Add(sid)
 				}
-
-				subs.Add(sid)
 			}
 
 		case len(f.Tags) > 0:
@@ -184,10 +234,9 @@ func (i dispatcherIndexes) add(s subscription) {
 					subs, ok := i.byTag[kv]
 					if !ok {
 						i.byTag[kv] = smallset.NewFrom(sid)
-						continue
+					} else {
+						subs.Add(sid)
 					}
-
-					subs.Add(sid)
 				}
 			}
 
@@ -196,10 +245,9 @@ func (i dispatcherIndexes) add(s subscription) {
 				subs, ok := i.byKind[k]
 				if !ok {
 					i.byKind[k] = smallset.NewFrom(sid)
-					continue
+				} else {
+					subs.Add(sid)
 				}
-
-				subs.Add(sid)
 			}
 
 		default:
@@ -209,15 +257,15 @@ func (i dispatcherIndexes) add(s subscription) {
 }
 
 // Remove the subscription from the dispatcher indexes, one filter at the time.
-// After removal, a subs is empty, the corresponding key it's removed from the map
-// in order to allow memory to be collected.
+// After removal, if a set is empty, the corresponding key it's removed from the map
+// to allow the map's bucket to be reused.
 //
 // This is not true for subs in the byClient index, which is created and deleted
 // in the [dispatcher.register] and [dispatcher.unregister] to avoid multiple
 // creation/deletion during the life-time of the client.
 func (i dispatcherIndexes) remove(s subscription) {
 	sid := sID(s.uid)
-	cid := s.client.uid
+	cid := cID(s.client.uid)
 	i.byClient[cid].Remove(sid)
 
 	for _, f := range s.filters {
