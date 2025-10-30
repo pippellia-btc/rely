@@ -85,6 +85,5 @@ func (p *processor) Process(request request) {
 		}
 
 		request.client.send(countResponse{ID: ID, Count: count, Approx: approx})
-		p.relay.closeSubscription(request.UID())
 	}
 }
