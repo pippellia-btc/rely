@@ -19,11 +19,12 @@ func newProcessor(relay *Relay) *processor {
 	}
 }
 
-// Run process the requests with [processor.maxWorkers], by appliying the user defined [Hooks].
+// Run spawn no more than [processor.maxWorkers] concurrent workers,
+// each processing the requests by appliying the user defined [Hooks].
 func (p *processor) Run() {
 	defer p.relay.wg.Done()
 
-	sem := make(chan struct{}, p.maxWorkers)
+	semaphore := make(chan struct{}, p.maxWorkers)
 
 	for {
 		select {
@@ -35,10 +36,16 @@ func (p *processor) Run() {
 				continue
 			}
 
-			sem <- struct{}{}
+			semaphore <- struct{}{}
+			p.relay.wg.Add(1)
+
 			go func() {
+				defer func() {
+					<-semaphore
+					p.relay.wg.Done()
+				}()
+
 				p.Process(request)
-				<-sem
 			}()
 		}
 	}
