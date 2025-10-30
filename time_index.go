@@ -9,23 +9,23 @@ import (
 )
 
 // timeIndex organize [intervalFilter]s into two categories:
-// - current: filters that intersect the (dynamic) time window [now - width, now + width]
+// - current: filters that intersect the (dynamic) time window [now - radius, now + radius]
 // - future: filters that don't intersect the time window but will in the future.
 //
 // The working assumption is that the vast majority of broadcasted events will have a CreatedAt inside this window.
 // Thanks to this assumption, we can reduce the number of candidates,
 // which drammatically improves speed and memory usage.
 type timeIndex struct {
-	width       int64
+	radius      int64
 	lastAdvance int64
 	current     *smallset.Custom[intervalFilter]
 	future      *smallset.Custom[intervalFilter]
 }
 
-// newTimeIndex returns a [timeIndex] using the (dynamic) time window [now - width, now + width].
-func newTimeIndex(width int64) *timeIndex {
+// newTimeIndex returns a [timeIndex] using the (dynamic) time window [now - radius, now + radius].
+func newTimeIndex(radius int64) *timeIndex {
 	return &timeIndex{
-		width:   width,
+		radius:  radius,
 		current: smallset.NewCustom(sortByUntil, 1024),
 		future:  smallset.NewCustom(sortBySince, 1024),
 	}
@@ -107,8 +107,8 @@ func (t *timeIndex) add(interval intervalFilter) {
 	}
 
 	now := time.Now().Unix()
-	min := now - t.width
-	max := now + t.width
+	min := now - t.radius
+	max := now + t.radius
 
 	if interval.until < min {
 		// assumption: it's unlikely that events this old will be broadcasted,
@@ -145,8 +145,8 @@ func (t *timeIndex) remove(interval intervalFilter) {
 func (t *timeIndex) Candidates(createdAt nostr.Timestamp) (*smallset.Ordered[sID], bool) {
 	t.advance()
 	now := time.Now().Unix()
-	min := now - t.width
-	max := now + t.width
+	min := now - t.radius
+	max := now + t.radius
 
 	if int64(createdAt) < min || int64(createdAt) > max {
 		// fast path that avoids returning candidates that will likely be false-positives
@@ -169,8 +169,8 @@ func (t *timeIndex) advance() {
 	}
 
 	t.lastAdvance = now
-	min := now - t.width
-	max := now + t.width
+	min := now - t.radius
+	max := now + t.radius
 
 	// move intervals from future to current.
 	for _, interval := range t.future.Ascend() {

@@ -95,7 +95,7 @@ func TestTimeIndexAdvance(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			index := timeIndex{
-				width:   10,
+				radius:  10,
 				current: smallset.NewCustomFrom(sortByUntil, test.current...),
 				future:  smallset.NewCustomFrom(sortBySince, test.future...),
 			}
