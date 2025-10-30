@@ -26,12 +26,12 @@ type Relay struct {
 	log        *slog.Logger
 
 	dispatcher *dispatcher
+	processor  *processor
 
 	lastRegistrationFail atomic.Int64
 
 	register   chan *client
 	unregister chan *client
-	process    chan request
 
 	Hooks
 	systemOptions
@@ -54,7 +54,6 @@ func NewRelay(opts ...Option) *Relay {
 		clients:          make(map[*client]struct{}, 1000),
 		register:         make(chan *client, 256),
 		unregister:       make(chan *client, 256),
-		process:          make(chan request, 1024),
 		Hooks:            DefaultHooks(),
 		systemOptions:    newSystemOptions(),
 		websocketOptions: newWebsocketOptions(),
@@ -63,6 +62,7 @@ func NewRelay(opts ...Option) *Relay {
 	}
 
 	r.dispatcher = newDispatcher(r)
+	r.processor = newProcessor(r)
 
 	for _, opt := range opts {
 		opt(r)
@@ -113,7 +113,7 @@ func (r *Relay) Start(ctx context.Context) {
 	r.wg.Add(3)
 	go r.run(ctx)
 	go r.dispatcher.Run()
-	go r.processLoop(ctx)
+	go r.processor.Run()
 }
 
 // Wait blocks until the relay has shut down completely.
@@ -198,78 +198,6 @@ drainUnregister:
 	}
 }
 
-// The respondLoop process the requests with [Relay.maxProcessors] processors,
-// by appliying the user defined [Hooks].
-func (r *Relay) processLoop(ctx context.Context) {
-	defer r.wg.Done()
-
-	sem := make(chan struct{}, r.maxProcessors)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		case request := <-r.process:
-			if request.IsExpired() {
-				continue
-			}
-
-			sem <- struct{}{}
-			go func() {
-				r.processOne(request)
-				<-sem
-			}()
-		}
-	}
-}
-
-// ProcessOne request according to its type by using the provided [Hooks].
-func (r *Relay) processOne(request request) {
-	ID := request.ID()
-	switch request := request.(type) {
-	case *eventRequest:
-		err := r.On.Event(request.client, request.Event)
-		if err != nil {
-			request.client.send(okResponse{ID: ID, Saved: false, Reason: err.Error()})
-			return
-		}
-
-		request.client.send(okResponse{ID: ID, Saved: true})
-		r.Broadcast(request.Event)
-
-	case *reqRequest:
-		budget := request.client.RemainingCapacity()
-		ApplyBudget(budget, request.Filters...)
-
-		events, err := r.On.Req(request.ctx, request.client, request.Filters)
-		if err != nil {
-			if request.ctx.Err() == nil {
-				// error not caused by the user's CLOSE
-				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
-			}
-
-			r.closeSubscription(request.UID())
-			return
-		}
-
-		for i := range events {
-			request.client.send(eventResponse{ID: ID, Event: &events[i]})
-		}
-		request.client.send(eoseResponse{ID: ID})
-
-	case *countRequest:
-		count, approx, err := r.On.Count(request.client, request.Filters)
-		if err != nil {
-			request.client.send(closedResponse{ID: ID, Reason: err.Error()})
-			return
-		}
-
-		request.client.send(countResponse{ID: ID, Count: count, Approx: approx})
-		r.closeSubscription(request.UID())
-	}
-}
-
 // Broadcast the event to all clients whose subscriptions match it.
 func (r *Relay) Broadcast(e *nostr.Event) error {
 	select {
@@ -287,7 +215,7 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 // If it's full, it returns [ErrOverloaded] inside the [requestError]
 func (r *Relay) tryProcess(rq request) *requestError {
 	select {
-	case r.process <- rq:
+	case r.processor.queue <- rq:
 		return nil
 	case <-r.done:
 		return &requestError{ID: rq.ID(), Err: ErrShuttingDown}

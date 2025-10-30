@@ -29,11 +29,13 @@ type Stats interface {
 	LastRegistrationFail() time.Time
 }
 
-func (r *Relay) Clients() int                    { return int(r.dispatcher.stats.clients.Load()) }
-func (r *Relay) Subscriptions() int              { return int(r.dispatcher.stats.subscriptions.Load()) }
-func (r *Relay) Filters() int                    { return int(r.dispatcher.stats.filters.Load()) }
-func (r *Relay) TotalConnections() int           { return int(r.nextClient.Load()) }
-func (r *Relay) QueueLoad() float64              { return float64(len(r.process)) / float64(cap(r.process)) }
+func (r *Relay) Clients() int          { return int(r.dispatcher.stats.clients.Load()) }
+func (r *Relay) Subscriptions() int    { return int(r.dispatcher.stats.subscriptions.Load()) }
+func (r *Relay) Filters() int          { return int(r.dispatcher.stats.filters.Load()) }
+func (r *Relay) TotalConnections() int { return int(r.nextClient.Load()) }
+func (r *Relay) QueueLoad() float64 {
+	return float64(len(r.processor.queue)) / float64(cap(r.processor.queue))
+}
 func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
 
 func (r *Relay) assignID() string { return strconv.FormatInt(r.nextClient.Add(1), 10) }
