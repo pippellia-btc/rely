@@ -19,13 +19,7 @@ const (
 	DefaultBufferSize     int           = 1024   // 1KB
 )
 
-type Option func(*Relay)
-
-type systemOptions struct {
-	// the maximum number of concurrent processors consuming from the [Relay.queue].
-	// To specify it, use [WithMaxProcessors].
-	maxProcessors int
-
+type systemSettings struct {
 	// the maximum number of responses sent to a client at once.
 	// To specify it, use [WithClientResponseLimit].
 	//
@@ -46,9 +40,8 @@ type systemOptions struct {
 	info []byte
 }
 
-func newSystemOptions() systemOptions {
-	return systemOptions{
-		maxProcessors: 4,
+func newSystemSettings() systemSettings {
+	return systemSettings{
 		responseLimit: 1000,
 		info:          newRelayInfo(),
 	}
@@ -62,13 +55,16 @@ func newRelayInfo() []byte {
 
 	json, err := json.Marshal(info)
 	if err != nil {
-		panic("failed to marshal NIP-11 document: " + err.Error())
+		panic("failed to marshal default NIP-11 document: " + err.Error())
 	}
+
 	return json
 }
 
+type Option func(*Relay)
+
 func WithLogger(l *slog.Logger) Option     { return func(r *Relay) { r.log = l } }
-func WithMaxProcessors(n int) Option       { return func(r *Relay) { r.maxProcessors = n } }
+func WithMaxProcessors(n int) Option       { return func(r *Relay) { r.processor.maxWorkers = n } }
 func WithClientResponseLimit(n int) Option { return func(r *Relay) { r.responseLimit = n } }
 func WithDomain(d string) Option           { return func(r *Relay) { r.domain = strings.TrimSpace(d) } }
 func WithQueueCapacity(c int) Option {
@@ -86,7 +82,7 @@ func WithInfo(info nip11.RelayInformationDocument) Option {
 	}
 }
 
-type websocketOptions struct {
+type websocketSettings struct {
 	upgrader       websocket.Upgrader
 	writeWait      time.Duration
 	pongWait       time.Duration
@@ -94,8 +90,8 @@ type websocketOptions struct {
 	maxMessageSize int64
 }
 
-func newWebsocketOptions() websocketOptions {
-	return websocketOptions{
+func newWebsocketSettings() websocketSettings {
+	return websocketSettings{
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  DefaultBufferSize,
 			WriteBufferSize: DefaultBufferSize,
@@ -134,7 +130,7 @@ func (r *Relay) validate() {
 		panic("max message size must be greater than 512 bytes to accept nostr events")
 	}
 
-	if r.maxProcessors < 1 {
+	if r.processor.maxWorkers < 1 {
 		panic("max processors must be greater than 1 to correctly process from the queue")
 	}
 

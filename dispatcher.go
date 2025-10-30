@@ -181,10 +181,6 @@ func (d *dispatcher) Clear() {
 
 // Add the subscription to the dispatcher indexes, one filter at the time.
 // Filter indexing is assumed to be safe, given that all filters have passed the Reject.Req.
-//
-// The subs in the byClient index is not checked before insertion, because it must be
-// managed at a higher level in the [dispatcher.register] and [dispatcher.unregister] to avoid multiple
-// creation/deletion during the life-time of the client.
 func (i dispatcherIndexes) add(s subscription) {
 	sid := sID(s.uid)
 	cid := cID(s.client.uid)
@@ -254,10 +250,6 @@ func (i dispatcherIndexes) add(s subscription) {
 // Remove the subscription from the dispatcher indexes, one filter at the time.
 // After removal, if a set is empty, the corresponding key it's removed from the map
 // to allow the map's bucket to be reused.
-//
-// This is not true for subs in the byClient index, which is created and deleted
-// in the [dispatcher.register] and [dispatcher.unregister] to avoid multiple
-// creation/deletion during the life-time of the client.
 func (i dispatcherIndexes) remove(s subscription) {
 	sid := sID(s.uid)
 	cid := cID(s.client.uid)

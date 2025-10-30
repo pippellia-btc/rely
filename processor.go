@@ -19,7 +19,7 @@ func newProcessor(relay *Relay) *processor {
 	}
 }
 
-// Run process the requests with [Relay.maxProcessors] processors, by appliying the user defined [Hooks].
+// Run process the requests with [processor.maxWorkers], by appliying the user defined [Hooks].
 func (p *processor) Run() {
 	defer p.relay.wg.Done()
 
@@ -37,14 +37,15 @@ func (p *processor) Run() {
 
 			sem <- struct{}{}
 			go func() {
-				p.Execute(request)
+				p.Process(request)
 				<-sem
 			}()
 		}
 	}
 }
 
-func (p *processor) Execute(request request) {
+// Process a single request based on its type, by applying the user defined [Hooks].
+func (p *processor) Process(request request) {
 	ID := request.ID()
 	switch request := request.(type) {
 	case *eventRequest:

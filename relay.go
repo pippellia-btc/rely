@@ -29,8 +29,8 @@ type Relay struct {
 	log *slog.Logger
 
 	Hooks
-	systemOptions
-	websocketOptions
+	systemSettings
+	websocketSettings
 
 	wg   sync.WaitGroup
 	done chan struct{}
@@ -49,14 +49,14 @@ type Relay struct {
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		clients:          make(map[*client]struct{}, 1000),
-		register:         make(chan *client, 256),
-		unregister:       make(chan *client, 256),
-		Hooks:            DefaultHooks(),
-		systemOptions:    newSystemOptions(),
-		websocketOptions: newWebsocketOptions(),
-		done:             make(chan struct{}),
-		log:              slog.Default(),
+		clients:           make(map[*client]struct{}, 1000),
+		register:          make(chan *client, 256),
+		unregister:        make(chan *client, 256),
+		log:               slog.Default(),
+		Hooks:             DefaultHooks(),
+		systemSettings:    newSystemSettings(),
+		websocketSettings: newWebsocketSettings(),
+		done:              make(chan struct{}),
 	}
 
 	r.dispatcher = newDispatcher(r)
