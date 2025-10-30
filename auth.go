@@ -22,27 +22,27 @@ var (
 	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
 )
 
-type auther struct {
+type authState struct {
 	mu        sync.RWMutex
 	pubkey    string
 	challenge string
 	domain    string
 }
 
-func (a *auther) SetPubkey(pubkey string) {
+func (a *authState) Set(pubkey string) {
 	a.mu.Lock()
 	a.pubkey = pubkey
 	a.mu.Unlock()
 }
 
-func (a *auther) Pubkey() string {
+func (a *authState) Pubkey() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.pubkey
 }
 
 // validateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
-func (a *auther) Validate(auth *authRequest) *requestError {
+func (a *authState) Validate(auth *authRequest) *requestError {
 	if auth.Event.Kind != nostr.KindClientAuthentication {
 		return &requestError{ID: auth.ID, Err: ErrInvalidAuthKind}
 	}

@@ -30,14 +30,14 @@ type Client interface {
 	ConnectedAt() time.Time
 
 	// Age returns how long the client has been connected.
-	// Short for time.Since(client.ConnectedAt())
+	// Short for time.Since(client.ConnectedAt()).
 	Age() time.Duration
 
-	// Subscriptions returns the currently active [Subscription]s of the client.
-	// Subscriptions() []Subscription
+	// Subscriptions returns a snapshot of the currently active [Subscription]s of the client.
+	Subscriptions() []Subscription
 
 	// SendNotice to the client, useful for greeting, warnings and other informational messages.
-	SendNotice(string)
+	SendNotice(msg string)
 
 	// SendAuth sends the client a newly generated AUTH challenge.
 	// This resets the authentication state: any previously authenticated pubkey is cleared,
@@ -80,42 +80,38 @@ type client struct {
 	uid         string
 	ip          string
 	connectedAt time.Time
-	auther      auther
+	auth        authState
+
+	invalidMessages  int
+	droppedResponses atomic.Int64
 
 	relay     *Relay
 	conn      *ws.Conn
 	responses chan response
 
-	done             chan struct{}
-	isUnregistering  atomic.Bool
-	droppedResponses atomic.Int64
-	invalidMessages  int
+	isUnregistering atomic.Bool
+	done            chan struct{}
 }
 
 func (c *client) UID() string            { return c.uid }
 func (c *client) IP() string             { return c.ip }
-func (c *client) Pubkey() string         { return c.auther.Pubkey() }
+func (c *client) Pubkey() string         { return c.auth.Pubkey() }
 func (c *client) ConnectedAt() time.Time { return c.connectedAt }
 func (c *client) Age() time.Duration     { return time.Since(c.connectedAt) }
-
-// func (c *client) Subscriptions() []subscription { return c.subscriptions.List() }
 func (c *client) DroppedResponses() int  { return int(c.droppedResponses.Load()) }
 func (c *client) RemainingCapacity() int { return cap(c.responses) - len(c.responses) }
-
-func (c *client) SendNotice(message string) {
-	c.send(noticeResponse{Message: message})
-}
+func (c *client) SendNotice(msg string)  { c.send(noticeResponse{Message: msg}) }
 
 func (c *client) SendAuth() {
 	bytes := make([]byte, authChallengeBytes)
 	rand.Read(bytes)
 	challenge := hex.EncodeToString(bytes)
 
-	c.auther.mu.Lock()
-	defer c.auther.mu.Unlock()
+	c.auth.mu.Lock()
+	defer c.auth.mu.Unlock()
 
-	c.auther.pubkey = ""
-	c.auther.challenge = challenge
+	c.auth.pubkey = ""
+	c.auth.challenge = challenge
 	c.send(authResponse{Challenge: challenge})
 }
 
@@ -124,6 +120,19 @@ func (c *client) Disconnect() {
 		close(c.done)
 		c.relay.unregister <- c
 	}
+}
+
+// SubRequest is a request to the [Relay] to view the subscriptions of the client
+type subRequest struct {
+	client *client
+	reply  chan []Subscription
+}
+
+func (c *client) Subscriptions() []Subscription {
+	reply := make(chan []Subscription)
+	request := subRequest{client: c, reply: reply}
+	c.relay.viewSubs <- request
+	return <-reply
 }
 
 // The client reads from the websocket and parses the data into the appropriate structure (e.g. [reqRequest]).
@@ -223,12 +232,12 @@ func (c *client) read() {
 				continue
 			}
 
-			if err := c.auther.Validate(auth); err != nil {
+			if err := c.auth.Validate(auth); err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
-			c.auther.SetPubkey(auth.PubKey)
+			c.auth.Set(auth.PubKey)
 			c.send(okResponse{ID: auth.ID, Saved: true})
 			c.relay.On.Auth(c)
 

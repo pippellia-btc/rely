@@ -122,6 +122,15 @@ func (d *dispatcher) close(id sID) {
 	}
 }
 
+func (d *dispatcher) viewSubs(c *client) []Subscription {
+	IDs := d.indexes.byClient[c.uid]
+	subs := make([]Subscription, IDs.Size())
+	for i, id := range IDs.Ascend() {
+		subs[i] = d.subscriptions[id]
+	}
+	return subs
+}
+
 func (d *dispatcher) broadcast(e *nostr.Event) {
 	for _, id := range d.indexes.candidates(e) {
 		sub := d.subscriptions[id]

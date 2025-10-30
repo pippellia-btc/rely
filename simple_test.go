@@ -448,12 +448,12 @@ func TestValidateAuth(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			auther := auther{
+			authState := authState{
 				challenge: "challenge",
 				domain:    "example.com",
 			}
 
-			requestErr := auther.Validate(test.auth)
+			requestErr := authState.Validate(test.auth)
 			var err error
 			if requestErr != nil {
 				err = requestErr.Err

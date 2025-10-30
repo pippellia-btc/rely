@@ -32,6 +32,7 @@ type Relay struct {
 	unregister chan *client
 	open       chan subscription
 	close      chan sID
+	viewSubs   chan subRequest
 	broadcast  chan *nostr.Event
 	process    chan request
 
@@ -59,6 +60,7 @@ func NewRelay(opts ...Option) *Relay {
 		open:             make(chan subscription, 256),
 		close:            make(chan sID, 256),
 		broadcast:        make(chan *nostr.Event, 1024),
+		viewSubs:         make(chan subRequest, 256),
 		process:          make(chan request, 1024),
 		Hooks:            DefaultHooks(),
 		systemOptions:    newSystemOptions(),
@@ -164,6 +166,9 @@ func (r *Relay) dispatchLoop(ctx context.Context) {
 
 		case event := <-r.broadcast:
 			r.dispatcher.broadcast(event)
+
+		case request := <-r.viewSubs:
+			request.reply <- r.dispatcher.viewSubs(request.client)
 		}
 	}
 }
@@ -377,7 +382,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		uid:         r.assignID(),
 		ip:          IP(req),
 		connectedAt: time.Now(),
-		auther:      auther{domain: r.domain},
+		auth:        authState{domain: r.domain},
 		relay:       r,
 		conn:        conn,
 		responses:   make(chan response, r.responseLimit),
