@@ -65,11 +65,10 @@ func (p *processor) Process(request request) {
 		events, err := p.relay.On.Req(request.ctx, request.client, request.Filters)
 		if err != nil {
 			if request.ctx.Err() == nil {
-				// error not caused by the user's CLOSE
+				// error not caused by the user's CLOSE, so we must close the subscription
 				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
+				p.relay.closeSubscription(request.UID())
 			}
-
-			p.relay.closeSubscription(request.UID())
 			return
 		}
 
