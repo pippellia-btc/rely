@@ -185,6 +185,7 @@ drainRegister:
 	for client := range r.clients {
 		if client.isUnregistering.CompareAndSwap(false, true) {
 			close(client.done)
+			r.stats.clients.Add(-1)
 		}
 	}
 
@@ -194,6 +195,7 @@ drainUnregister:
 	for {
 		select {
 		case <-r.unregister:
+			r.stats.clients.Add(-1)
 		default:
 			break drainUnregister
 		}

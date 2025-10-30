@@ -177,6 +177,8 @@ func (d *dispatcher) Clear() {
 	d.indexes.byKind = nil
 	d.indexes.byTag = nil
 	d.indexes.byTime = nil
+	d.relay.stats.subscriptions.Store(0)
+	d.relay.stats.filters.Store(0)
 }
 
 // Add the subscription to the dispatcher indexes, one filter at the time.
