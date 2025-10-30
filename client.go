@@ -62,7 +62,7 @@ type Client interface {
 // It's responsible for parsing and validating the [request]s,
 // sending them to the [Relay], and for writing the [response]s it receives from it.
 //
-// The client lifecycle starts after registration in the [Relay.dispatchLoop],
+// The client lifecycle starts after registration in the [Relay.run],
 // where [client.read] and [client.write] are spawned. The shutdown cycle is as follows:
 //
 // - [client.read] returns
@@ -85,7 +85,10 @@ type client struct {
 	invalidMessages  int
 	droppedResponses atomic.Int64
 
-	// pointer to parent relay, which must only be used to read settings/hooks or send to channels
+	// pointer to parent relay, which must only be used for:
+	//	- reading settings/hooks
+	//	- sending to channels
+	// 	- incrementing atomic counters
 	relay     *Relay
 	conn      *ws.Conn
 	responses chan response

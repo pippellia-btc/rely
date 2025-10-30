@@ -2,6 +2,7 @@ package rely
 
 import (
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,9 +18,6 @@ type Stats interface {
 	// Filters returns the number of active filters of REQ subscriptions.
 	Filters() int
 
-	// TotalConnections returns the total number of connections since the relay startup.
-	TotalConnections() int
-
 	// QueueLoad returns the ratio of queued requests to total capacity,
 	// represented as a float between 0 and 1.
 	QueueLoad() float64
@@ -27,15 +25,30 @@ type Stats interface {
 	// LastRegistrationFail returns the last time a client failed to be added
 	// to the registration queue, which happens during periods of high load.
 	LastRegistrationFail() time.Time
+
+	// TotalConnections returns the total number of connections since the relay startup.
+	TotalConnections() int
 }
 
-func (r *Relay) Clients() int          { return int(r.dispatcher.stats.clients.Load()) }
-func (r *Relay) Subscriptions() int    { return int(r.dispatcher.stats.subscriptions.Load()) }
-func (r *Relay) Filters() int          { return int(r.dispatcher.stats.filters.Load()) }
-func (r *Relay) TotalConnections() int { return int(r.nextClient.Load()) }
+type stats struct {
+	clients       atomic.Int64
+	subscriptions atomic.Int64
+	filters       atomic.Int64
+
+	nextClient           atomic.Int64
+	lastRegistrationFail atomic.Int64
+}
+
+func (r *Relay) Clients() int          { return int(r.stats.clients.Load()) }
+func (r *Relay) Subscriptions() int    { return int(r.stats.subscriptions.Load()) }
+func (r *Relay) Filters() int          { return int(r.stats.filters.Load()) }
+func (r *Relay) TotalConnections() int { return int(r.stats.nextClient.Load()) }
+
 func (r *Relay) QueueLoad() float64 {
 	return float64(len(r.processor.queue)) / float64(cap(r.processor.queue))
 }
-func (r *Relay) LastRegistrationFail() time.Time { return time.Unix(r.lastRegistrationFail.Load(), 0) }
+func (r *Relay) LastRegistrationFail() time.Time {
+	return time.Unix(r.stats.lastRegistrationFail.Load(), 0)
+}
 
-func (r *Relay) assignID() string { return strconv.FormatInt(r.nextClient.Add(1), 10) }
+func (r *Relay) assignID() string { return strconv.FormatInt(r.stats.nextClient.Add(1), 10) }

@@ -4,7 +4,10 @@ type processor struct {
 	maxWorkers int
 	queue      chan request
 
-	// pointer to parent relay, which must only be used to read settings/hooks or send to channels
+	// pointer to parent relay, which must only be used for:
+	//	- reading settings/hooks
+	//	- sending to channels
+	// 	- incrementing atomic counters
 	relay *Relay
 }
 

@@ -2,7 +2,6 @@ package rely
 
 import (
 	"strings"
-	"sync/atomic"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/smallset"
@@ -23,8 +22,7 @@ func join(strs ...string) string { return strings.Join(strs, ":") }
 // essential for efficient broadcasting of events.
 type dispatcher struct {
 	subscriptions map[sID]subscription
-	indexes       *dispatcherIndexes
-	stats         dispatcherStats
+	indexes       dispatcherIndexes
 
 	open      chan subscription
 	close     chan sID
@@ -32,7 +30,10 @@ type dispatcher struct {
 	viewSubs  chan subRequest
 	broadcast chan *nostr.Event
 
-	// pointer to parent relay, which must only be used to read settings/hooks or send to channels
+	// pointer to parent relay, which must only be used for:
+	//	- reading settings/hooks
+	//	- sending to channels
+	// 	- incrementing atomic counters
 	relay *Relay
 }
 
@@ -45,12 +46,6 @@ type dispatcherIndexes struct {
 	byTag    map[string]*smallset.Ordered[sID]
 	byKind   map[int]*smallset.Ordered[sID]
 	byTime   *timeIndex
-}
-
-type dispatcherStats struct {
-	clients       atomic.Int64
-	subscriptions atomic.Int64
-	filters       atomic.Int64
 }
 
 func newDispatcher(relay *Relay) *dispatcher {
@@ -66,8 +61,8 @@ func newDispatcher(relay *Relay) *dispatcher {
 	}
 }
 
-func newDispatcherIndexes() *dispatcherIndexes {
-	return &dispatcherIndexes{
+func newDispatcherIndexes() dispatcherIndexes {
+	return dispatcherIndexes{
 		byClient: make(map[cID]*smallset.Ordered[sID], 1000),
 		byID:     make(map[string]*smallset.Ordered[sID], 3000),
 		byAuthor: make(map[string]*smallset.Ordered[sID], 3000),
@@ -129,15 +124,15 @@ func (d *dispatcher) Open(s subscription) {
 		d.subscriptions[id] = s
 
 		delta := int64(len(s.filters) - len(old.filters))
-		d.stats.filters.Add(delta)
+		d.relay.stats.filters.Add(delta)
 		return
 	}
 
 	d.indexes.add(s)
 	d.subscriptions[id] = s
 
-	d.stats.subscriptions.Add(1)
-	d.stats.filters.Add(int64(len(s.filters)))
+	d.relay.stats.subscriptions.Add(1)
+	d.relay.stats.filters.Add(int64(len(s.filters)))
 }
 
 // Close the subscription with the provided ID, if present.
@@ -148,8 +143,8 @@ func (d *dispatcher) Close(id sID) {
 		d.indexes.remove(sub)
 		delete(d.subscriptions, id)
 
-		d.stats.subscriptions.Add(-1)
-		d.stats.filters.Add(-int64(len(sub.filters)))
+		d.relay.stats.subscriptions.Add(-1)
+		d.relay.stats.filters.Add(-int64(len(sub.filters)))
 	}
 }
 

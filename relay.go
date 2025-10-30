@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -20,22 +19,21 @@ var (
 
 type Relay struct {
 	clients    map[*client]struct{}
-	nextClient atomic.Int64
-	wg         sync.WaitGroup // for waiting for client's goroutines
-	done       chan struct{}
-	log        *slog.Logger
+	register   chan *client
+	unregister chan *client
 
 	dispatcher *dispatcher
 	processor  *processor
+	stats
 
-	lastRegistrationFail atomic.Int64
-
-	register   chan *client
-	unregister chan *client
+	log *slog.Logger
 
 	Hooks
 	systemOptions
 	websocketOptions
+
+	wg   sync.WaitGroup
+	done chan struct{}
 }
 
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
@@ -135,6 +133,8 @@ func (r *Relay) run(ctx context.Context) {
 
 		case client := <-r.register:
 			r.clients[client] = struct{}{}
+			r.stats.clients.Add(1)
+
 			r.wg.Add(2)
 			go client.read()
 			go client.write()
@@ -142,6 +142,7 @@ func (r *Relay) run(ctx context.Context) {
 
 		case client := <-r.unregister:
 			delete(r.clients, client)
+			r.stats.clients.Add(-1)
 			r.dispatcher.closeAll <- cID(client.uid)
 			r.On.Disconnect(client)
 
@@ -150,6 +151,7 @@ func (r *Relay) run(ctx context.Context) {
 			for range len(r.unregister) {
 				client = <-r.unregister
 				delete(r.clients, client)
+				r.stats.clients.Add(-1)
 				r.dispatcher.closeAll <- cID(client.uid)
 				r.On.Disconnect(client)
 			}
@@ -308,7 +310,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		client.conn.Close()
 
 	default:
-		r.lastRegistrationFail.Store(time.Now().Unix())
+		r.stats.lastRegistrationFail.Store(time.Now().Unix())
 		client.writeCloseTryLater()
 		client.conn.Close()
 		r.log.Warn("failed to register client", "ip", client.ip, "error", "channel is full")
