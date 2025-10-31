@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -414,7 +415,7 @@ func (c *client) handleReq(req *reqRequest) *requestError {
 	sub := subscription{
 		uid:       join(c.uid, req.id),
 		id:        req.id,
-		filters:   req.Filters,
+		filters:   slices.Clone(req.Filters),
 		createdAt: time.Now(),
 		client:    c,
 	}
