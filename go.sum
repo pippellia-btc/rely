@@ -50,6 +50,8 @@ github.com/pippellia-btc/slicex v0.2.5 h1:cthD4tKjg9CiWFjotIQinhqF2r7K83mkqHBX3c
 github.com/pippellia-btc/slicex v0.2.5/go.mod h1:fu7VjA9Cdk76wIUlkzWOYiMG8/VEs1fJiUhkKqEopd8=
 github.com/pippellia-btc/smallset v0.4.0 h1:jFWC+sBxpJEuk7MJHTU7EfCdZ7WoMXhzLegsAuhZvcE=
 github.com/pippellia-btc/smallset v0.4.0/go.mod h1:VYIMqOCTpNyTqg08nBHG2xHIepR9Px70R6iKcSY28hY=
+github.com/pippellia-btc/smallset v0.4.1 h1:QmPiDnpth91/o6W/z6tNZo4F0zpWYmUZQ9OJskQWz38=
+github.com/pippellia-btc/smallset v0.4.1/go.mod h1:VYIMqOCTpNyTqg08nBHG2xHIepR9Px70R6iKcSY28hY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/puzpuzpuz/xsync/v3 v3.5.1 h1:GJYJZwO6IdxN/IKbneznS6yPkVC+c3zyY/j19c++5Fg=
