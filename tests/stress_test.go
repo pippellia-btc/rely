@@ -121,6 +121,13 @@ func dummyOnReq(ctx context.Context, c rely.Client, f nostr.Filters) ([]nostr.Ev
 	if rg.Float32() < relayDisconnectProbability {
 		c.Disconnect()
 	}
+
+	for _, sub := range c.Subscriptions() {
+		if rg.Float32() < 0.1 {
+			sub.Close("idk bro")
+		}
+	}
+
 	return nil, nil
 }
 func dummyOnCount(c rely.Client, f nostr.Filters) (int64, bool, error) {
