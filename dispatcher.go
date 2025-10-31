@@ -11,23 +11,23 @@ import (
 // is identical to [subscription.uid]. Used only to make the code more readable
 type sID string
 
-// cID is the internal representation of a unique client identifier, which
-// is identical to [client.uid]. Used only to make the code more readable
-type cID string
-
 // Join multiple strings into one, separated by ":". Useful to produce canonical UIDs.
 func join(strs ...string) string { return strings.Join(strs, ":") }
 
-// Dispatcher is responsible for managing the subscriptions state and the indexes,
-// essential for efficient broadcasting of events.
+// Dispatcher is responsible for indexing subscriptions, essential for efficient broadcasting of events.
+//
+// The dispatcher is *not* the authority when it comes to the subscriptions state.
+// Each [client] is the ultimate authority of its own subscriptions.
+// The dispatcher manages a global and eventually-consistent snapshot of all clients' subscriptions.
 type dispatcher struct {
 	subscriptions map[sID]subscription
-	indexes       dispatcherIndexes
+	byID          map[string]*smallset.Ordered[sID]
+	byAuthor      map[string]*smallset.Ordered[sID]
+	byTag         map[string]*smallset.Ordered[sID]
+	byKind        map[int]*smallset.Ordered[sID]
+	byTime        *timeIndex
 
-	open      chan subscription
-	close     chan sID
-	closeAll  chan cID
-	viewSubs  chan subRequest
+	updates   chan update
 	broadcast chan *nostr.Event
 
 	// pointer to parent relay, which must only be used for:
@@ -37,38 +37,31 @@ type dispatcher struct {
 	relay *Relay
 }
 
-// DispatcherIndexes allows for fast search of candidate subscription IDs for a specific event.
-// It maintains indexes for all filter fields except search.
-type dispatcherIndexes struct {
-	byClient map[cID]*smallset.Ordered[sID]
-	byID     map[string]*smallset.Ordered[sID]
-	byAuthor map[string]*smallset.Ordered[sID]
-	byTag    map[string]*smallset.Ordered[sID]
-	byKind   map[int]*smallset.Ordered[sID]
-	byTime   *timeIndex
+var (
+	index   int = 1
+	unindex int = -1
+)
+
+// update represent either an indexing or unindexing of a subscription.
+// Both operations must be placed in the same channel to serialize them.
+// For example, imagine a subscription being replaced with another (same ID, different filters).
+// The dispatcher must unindex the old, and index the new, in this order.
+type update struct {
+	operation int // either [index] or [unindex]
+	sub       subscription
 }
 
 func newDispatcher(relay *Relay) *dispatcher {
 	return &dispatcher{
-		subscriptions: make(map[sID]subscription, 1000),
-		indexes:       newDispatcherIndexes(),
-		open:          make(chan subscription, 256),
-		close:         make(chan sID, 256),
-		closeAll:      make(chan cID, 256),
+		subscriptions: make(map[sID]subscription, 3000),
+		byID:          make(map[string]*smallset.Ordered[sID], 3000),
+		byAuthor:      make(map[string]*smallset.Ordered[sID], 3000),
+		byTag:         make(map[string]*smallset.Ordered[sID], 3000),
+		byKind:        make(map[int]*smallset.Ordered[sID], 3000),
+		byTime:        newTimeIndex(600),
+		updates:       make(chan update, 256),
 		broadcast:     make(chan *nostr.Event, 256),
-		viewSubs:      make(chan subRequest, 256),
 		relay:         relay,
-	}
-}
-
-func newDispatcherIndexes() dispatcherIndexes {
-	return dispatcherIndexes{
-		byClient: make(map[cID]*smallset.Ordered[sID], 1000),
-		byID:     make(map[string]*smallset.Ordered[sID], 3000),
-		byAuthor: make(map[string]*smallset.Ordered[sID], 3000),
-		byTag:    make(map[string]*smallset.Ordered[sID], 3000),
-		byKind:   make(map[int]*smallset.Ordered[sID], 3000),
-		byTime:   newTimeIndex(600),
 	}
 }
 
@@ -82,26 +75,13 @@ func (d *dispatcher) Run() {
 			d.Clear()
 			return
 
-		case sub := <-d.open:
-			d.Open(sub)
-
-		case subID := <-d.close:
-			d.Close(subID)
-
-		case cID := <-d.closeAll:
-			subs, ok := d.indexes.byClient[cID]
-			if !ok {
-				break
+		case update := <-d.updates:
+			switch update.operation {
+			case index:
+				d.Index(update.sub)
+			case unindex:
+				d.Unindex(update.sub)
 			}
-
-			for _, id := range subs.Items() {
-				d.Close(id)
-			}
-			delete(d.indexes.byClient, cID)
-
-		case request := <-d.viewSubs:
-			subs := d.SubscriptionsOf(request.client)
-			request.reply <- subs
 
 		case event := <-d.broadcast:
 			d.Broadcast(event)
@@ -109,57 +89,8 @@ func (d *dispatcher) Run() {
 	}
 }
 
-// Open or overwrite a subscription with the dispatcher.
-func (d *dispatcher) Open(s subscription) {
-	if s.client.isUnregistering.Load() {
-		return
-	}
-
-	id := sID(s.uid)
-	old, exists := d.subscriptions[id]
-	if exists {
-		old.cancel()
-		d.indexes.remove(old)
-		d.indexes.add(s)
-		d.subscriptions[id] = s
-
-		delta := int64(len(s.filters) - len(old.filters))
-		d.relay.stats.filters.Add(delta)
-		return
-	}
-
-	d.indexes.add(s)
-	d.subscriptions[id] = s
-
-	d.relay.stats.subscriptions.Add(1)
-	d.relay.stats.filters.Add(int64(len(s.filters)))
-}
-
-// Close the subscription with the provided ID, if present.
-func (d *dispatcher) Close(id sID) {
-	sub, exists := d.subscriptions[id]
-	if exists {
-		sub.cancel()
-		d.indexes.remove(sub)
-		delete(d.subscriptions, id)
-
-		d.relay.stats.subscriptions.Add(-1)
-		d.relay.stats.filters.Add(-int64(len(sub.filters)))
-	}
-}
-
-// SubscriptionsOf returns the currently active subscriptions of the client with the provided ID.
-func (d *dispatcher) SubscriptionsOf(c *client) []Subscription {
-	IDs := d.indexes.byClient[cID(c.uid)]
-	subs := make([]Subscription, IDs.Size())
-	for i, id := range IDs.Ascend() {
-		subs[i] = d.subscriptions[id]
-	}
-	return subs
-}
-
 func (d *dispatcher) Broadcast(e *nostr.Event) {
-	for _, id := range d.indexes.candidates(e) {
+	for _, id := range d.Candidates(e) {
 		sub := d.subscriptions[id]
 		if sub.Matches(e) {
 			sub.client.send(eventResponse{ID: sub.id, Event: e})
@@ -167,40 +98,61 @@ func (d *dispatcher) Broadcast(e *nostr.Event) {
 	}
 }
 
+// Candidates returns a slice of candidate subscription ids that are likely to match the provided event.
+func (d *dispatcher) Candidates(e *nostr.Event) []sID {
+	candidates := make([]*smallset.Ordered[sID], 0, 10)
+	if subs, ok := d.byID[e.ID]; ok {
+		candidates = append(candidates, subs)
+	}
+	if subs, ok := d.byAuthor[e.PubKey]; ok {
+		candidates = append(candidates, subs)
+	}
+	if subs, ok := d.byKind[e.Kind]; ok {
+		candidates = append(candidates, subs)
+	}
+	if subs, ok := d.byTime.Candidates(e.CreatedAt); ok {
+		candidates = append(candidates, subs)
+	}
+
+	for _, t := range e.Tags {
+		if len(t) >= 2 && isLetter(t[0]) {
+			kv := join(t[0], t[1])
+			if subs, ok := d.byTag[kv]; ok {
+				candidates = append(candidates, subs)
+			}
+		}
+	}
+	return smallset.Merge(candidates...).Items()
+}
+
 // Clear explicitly sets all large index maps to nil to break references,
 // so the garbage collector can immediately reclaim the memory.
 func (d *dispatcher) Clear() {
 	d.subscriptions = nil
-	d.indexes.byClient = nil
-	d.indexes.byID = nil
-	d.indexes.byAuthor = nil
-	d.indexes.byKind = nil
-	d.indexes.byTag = nil
-	d.indexes.byTime = nil
+	d.byID = nil
+	d.byAuthor = nil
+	d.byKind = nil
+	d.byTag = nil
+	d.byTime = nil
 	d.relay.stats.subscriptions.Store(0)
 	d.relay.stats.filters.Store(0)
 }
 
 // Add the subscription to the dispatcher indexes, one filter at the time.
 // Filter indexing is assumed to be safe, given that all filters have passed the Reject.Req.
-func (i dispatcherIndexes) add(s subscription) {
+func (d *dispatcher) Index(s subscription) {
 	sid := sID(s.uid)
-	cid := cID(s.client.uid)
-
-	subs, ok := i.byClient[cid]
-	if !ok {
-		i.byClient[cid] = smallset.NewFrom(sid)
-	} else {
-		subs.Add(sid)
-	}
+	d.subscriptions[sid] = s
+	d.relay.stats.subscriptions.Add(1)
+	d.relay.stats.filters.Add(int64(len(s.filters)))
 
 	for _, f := range s.filters {
 		switch {
 		case len(f.IDs) > 0:
 			for _, id := range f.IDs {
-				subs, ok := i.byID[id]
+				subs, ok := d.byID[id]
 				if !ok {
-					i.byID[id] = smallset.NewFrom(sid)
+					d.byID[id] = smallset.NewFrom(sid)
 				} else {
 					subs.Add(sid)
 				}
@@ -208,9 +160,9 @@ func (i dispatcherIndexes) add(s subscription) {
 
 		case len(f.Authors) > 0:
 			for _, pk := range f.Authors {
-				subs, ok := i.byAuthor[pk]
+				subs, ok := d.byAuthor[pk]
 				if !ok {
-					i.byAuthor[pk] = smallset.NewFrom(sid)
+					d.byAuthor[pk] = smallset.NewFrom(sid)
 				} else {
 					subs.Add(sid)
 				}
@@ -224,9 +176,9 @@ func (i dispatcherIndexes) add(s subscription) {
 
 				for _, v := range vals {
 					kv := join(key, v)
-					subs, ok := i.byTag[kv]
+					subs, ok := d.byTag[kv]
 					if !ok {
-						i.byTag[kv] = smallset.NewFrom(sid)
+						d.byTag[kv] = smallset.NewFrom(sid)
 					} else {
 						subs.Add(sid)
 					}
@@ -235,16 +187,16 @@ func (i dispatcherIndexes) add(s subscription) {
 
 		case len(f.Kinds) > 0:
 			for _, k := range f.Kinds {
-				subs, ok := i.byKind[k]
+				subs, ok := d.byKind[k]
 				if !ok {
-					i.byKind[k] = smallset.NewFrom(sid)
+					d.byKind[k] = smallset.NewFrom(sid)
 				} else {
 					subs.Add(sid)
 				}
 			}
 
 		default:
-			i.byTime.Add(f, sid)
+			d.byTime.Add(f, sid)
 		}
 	}
 }
@@ -252,36 +204,37 @@ func (i dispatcherIndexes) add(s subscription) {
 // Remove the subscription from the dispatcher indexes, one filter at the time.
 // After removal, if a set is empty, the corresponding key it's removed from the map
 // to allow the map's bucket to be reused.
-func (i dispatcherIndexes) remove(s subscription) {
+func (d *dispatcher) Unindex(s subscription) {
 	sid := sID(s.uid)
-	cid := cID(s.client.uid)
-	i.byClient[cid].Remove(sid)
+	delete(d.subscriptions, sid)
+	d.relay.stats.subscriptions.Add(-1)
+	d.relay.stats.filters.Add(-int64(len(s.filters)))
 
 	for _, f := range s.filters {
 		switch {
 		case len(f.IDs) > 0:
 			for _, id := range f.IDs {
-				subs, ok := i.byID[id]
+				subs, ok := d.byID[id]
 				if !ok {
 					continue
 				}
 
 				subs.Remove(sid)
 				if subs.IsEmpty() {
-					delete(i.byID, id)
+					delete(d.byID, id)
 				}
 			}
 
 		case len(f.Authors) > 0:
 			for _, pk := range f.Authors {
-				subs, ok := i.byAuthor[pk]
+				subs, ok := d.byAuthor[pk]
 				if !ok {
 					continue
 				}
 
 				subs.Remove(sid)
 				if subs.IsEmpty() {
-					delete(i.byAuthor, pk)
+					delete(d.byAuthor, pk)
 				}
 			}
 
@@ -293,62 +246,35 @@ func (i dispatcherIndexes) remove(s subscription) {
 
 				for _, v := range vals {
 					kv := join(key, v)
-					subs, ok := i.byTag[kv]
+					subs, ok := d.byTag[kv]
 					if !ok {
 						continue
 					}
 
 					subs.Remove(sid)
 					if subs.IsEmpty() {
-						delete(i.byTag, kv)
+						delete(d.byTag, kv)
 					}
 				}
 			}
 
 		case len(f.Kinds) > 0:
 			for _, k := range f.Kinds {
-				subs, ok := i.byKind[k]
+				subs, ok := d.byKind[k]
 				if !ok {
 					continue
 				}
 
 				subs.Remove(sid)
 				if subs.IsEmpty() {
-					delete(i.byKind, k)
+					delete(d.byKind, k)
 				}
 			}
 
 		default:
-			i.byTime.Remove(f, sid)
+			d.byTime.Remove(f, sid)
 		}
 	}
-}
-
-// Candidates returns a slice of candidate subscription ids that are likely to match the provided event.
-func (i dispatcherIndexes) candidates(e *nostr.Event) []sID {
-	candidates := make([]*smallset.Ordered[sID], 0, 10)
-	if subs, ok := i.byID[e.ID]; ok {
-		candidates = append(candidates, subs)
-	}
-	if subs, ok := i.byAuthor[e.PubKey]; ok {
-		candidates = append(candidates, subs)
-	}
-	if subs, ok := i.byKind[e.Kind]; ok {
-		candidates = append(candidates, subs)
-	}
-	if subs, ok := i.byTime.Candidates(e.CreatedAt); ok {
-		candidates = append(candidates, subs)
-	}
-
-	for _, t := range e.Tags {
-		if len(t) >= 2 && isLetter(t[0]) {
-			kv := join(t[0], t[1])
-			if subs, ok := i.byTag[kv]; ok {
-				candidates = append(candidates, subs)
-			}
-		}
-	}
-	return smallset.Merge(candidates...).Items()
 }
 
 // isLetter returns whether the string is a single letter (a-z or A-Z).

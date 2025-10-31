@@ -143,7 +143,6 @@ func (r *Relay) run(ctx context.Context) {
 		case client := <-r.unregister:
 			delete(r.clients, client)
 			r.stats.clients.Add(-1)
-			r.dispatcher.closeAll <- cID(client.uid)
 			r.On.Disconnect(client)
 
 			// perform batch unregistration to prevent [client.Disconnect] from getting stuck
@@ -152,7 +151,6 @@ func (r *Relay) run(ctx context.Context) {
 				client = <-r.unregister
 				delete(r.clients, client)
 				r.stats.clients.Add(-1)
-				r.dispatcher.closeAll <- cID(client.uid)
 				r.On.Disconnect(client)
 			}
 		}
@@ -231,28 +229,46 @@ func (r *Relay) tryProcess(rq request) *requestError {
 
 // tryOpen tries to add the subscription to the open subscription queue of the relay.
 // If it's full, it returns [ErrOverloaded] inside the [requestError]
-func (r *Relay) tryOpen(s subscription) *requestError {
+// func (r *Relay) tryOpen(s subscription) *requestError {
+// 	select {
+// 	case r.dispatcher.open <- s:
+// 		return nil
+// 	case <-r.done:
+// 		return &requestError{ID: s.id, Err: ErrShuttingDown}
+// 	default:
+// 		r.log.Warn("failed to open subscription", "uid", s.UID(), "error", ErrOverloaded)
+// 		return &requestError{ID: s.id, Err: ErrOverloaded}
+// 	}
+// }
+
+func (r *Relay) index(s subscription) {
 	select {
-	case r.dispatcher.open <- s:
-		return nil
+	case r.dispatcher.updates <- update{operation: index, sub: s}:
+		return
 	case <-r.done:
-		return &requestError{ID: s.id, Err: ErrShuttingDown}
-	default:
-		r.log.Warn("failed to open subscription", "uid", s.UID(), "error", ErrOverloaded)
-		return &requestError{ID: s.id, Err: ErrOverloaded}
+		return
+	}
+}
+
+func (r *Relay) unindex(s subscription) {
+	select {
+	case r.dispatcher.updates <- update{operation: unindex, sub: s}:
+		return
+	case <-r.done:
+		return
 	}
 }
 
 // closeSubscription wait until it's able to send in the closing subscriptions queue,
 // or the relay shuts down. It's blocking because failure to enqueue implies a memory leak.
-func (r *Relay) closeSubscription(sid string) {
-	select {
-	case r.dispatcher.close <- sID(sid):
-		return
-	case <-r.done:
-		return
-	}
-}
+// func (r *Relay) closeSubscription(sid string) {
+// 	select {
+// 	case r.dispatcher.close <- sID(sid):
+// 		return
+// 	case <-r.done:
+// 		return
+// 	}
+// }
 
 // ServeHTTP implements the [http.Handler] interface, handling WebSocket connections
 // and NIP-11 Relay Information Document requests.
@@ -298,6 +314,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		ip:          IP(req),
 		connectedAt: time.Now(),
 		auth:        authState{domain: r.domain},
+		subs:        make(map[string]subscription, 10),
 		relay:       r,
 		conn:        conn,
 		responses:   make(chan response, r.responseLimit),

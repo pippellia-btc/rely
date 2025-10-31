@@ -73,8 +73,7 @@ func (p *processor) Process(request request) {
 		if err != nil {
 			if request.ctx.Err() == nil {
 				// error not caused by the user's CLOSE, so we must close the subscription
-				request.client.send(closedResponse{ID: ID, Reason: err.Error()})
-				p.relay.closeSubscription(request.UID())
+				request.client.CloseWithReason(ID, err.Error())
 			}
 			return
 		}

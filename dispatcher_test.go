@@ -29,26 +29,30 @@ func init() {
 	}
 }
 
-func TestIndexAdd(t *testing.T) {
-	i := newDispatcherIndexes()
+func TestIndex(t *testing.T) {
+	d := newDispatcher(&Relay{})
 	sub := subscription{
 		uid:     "0:test",
 		filters: nostr.Filters{{IDs: []string{"xxx"}}},
 		client:  &client{uid: "0"},
 	}
 
-	i.byClient["0"] = smallset.New[sID](20)
-	i.add(sub)
-	sIDs := i.byID["xxx"].Items()
+	d.Index(sub)
+
+	if _, ok := d.subscriptions["0:test"]; !ok {
+		t.Errorf("subscription wasn't added to the map")
+	}
+
+	sIDs := d.byID["xxx"].Items()
 	expected := []sID{"0:test"}
 
 	if !reflect.DeepEqual(sIDs, expected) {
-		t.Fatalf("expected %v, got %v", expected, sIDs)
+		t.Errorf("expected %v, got %v", expected, sIDs)
 	}
 }
 
-func TestIndexRemove(t *testing.T) {
-	i := newDispatcherIndexes()
+func TestUnindex(t *testing.T) {
+	d := newDispatcher(&Relay{})
 	sID := sID("0:test")
 	sub := subscription{
 		uid:     string(sID),
@@ -56,33 +60,35 @@ func TestIndexRemove(t *testing.T) {
 		client:  &client{uid: "0"},
 	}
 
-	i.byClient["0"] = smallset.NewFrom(sID)
-	i.byID["abc"] = smallset.NewFrom(sID)
-	i.remove(sub)
+	// manual indexing
+	d.subscriptions[sID] = sub
+	d.byID["abc"] = smallset.NewFrom(sID)
 
-	if _, ok := i.byID["abc"]; ok {
-		t.Fatalf("byID[\"abc\"] should have been deleted")
+	d.Unindex(sub)
+
+	if _, ok := d.subscriptions[sID]; ok {
+		t.Errorf("subscriptions[\"0:test\"] should have been deleted")
+	}
+
+	if _, ok := d.byID["abc"]; ok {
+		t.Errorf("byID[\"abc\"] should have been deleted")
 	}
 }
 
 func TestIndexingSymmetry(t *testing.T) {
-	i := newDispatcherIndexes()
+	i := newDispatcher(&Relay{})
 	for _, sub := range testSubs {
-		cid := cID(sub.client.uid)
-		i.byClient[cid] = smallset.New[sID](20)
-		i.add(sub)
+		i.Index(sub)
 	}
 
 	slicex.Shuffle(testSubs)
 	for _, sub := range testSubs {
-		cid := cID(sub.client.uid)
-		i.remove(sub)
-		delete(i.byClient, cid)
+		i.Unindex(sub)
 	}
 
-	if len(i.byClient) > 0 || len(i.byID) > 0 || len(i.byAuthor) > 0 || len(i.byKind) > 0 || len(i.byTag) > 0 || i.byTime.size() > 0 {
-		t.Errorf("expected all maps empty, got byClient=%d byID=%d byAuthor=%d byKind=%d byTag=%d byTime=%d",
-			len(i.byClient), len(i.byID), len(i.byAuthor), len(i.byKind), len(i.byTag), i.byTime.size())
+	if len(i.byID) > 0 || len(i.byAuthor) > 0 || len(i.byKind) > 0 || len(i.byTag) > 0 || i.byTime.size() > 0 {
+		t.Errorf("expected all maps empty, got byID=%d byAuthor=%d byKind=%d byTag=%d byTime=%d",
+			len(i.byID), len(i.byAuthor), len(i.byKind), len(i.byTag), i.byTime.size())
 	}
 }
 
@@ -133,35 +139,35 @@ func timestamp(unix int64) *nostr.Timestamp {
 	return &ts
 }
 
-func BenchmarkIndexAdd(b *testing.B) {
-	indexes := newDispatcherIndexes()
+func BenchmarkIndex(b *testing.B) {
+	d := newDispatcher(&Relay{})
 	b.ResetTimer()
 	for i := range b.N {
-		indexes.add(testSubs[i%testSize])
+		d.Index(testSubs[i%testSize])
 	}
 }
 
-func BenchmarkIndexRemove(b *testing.B) {
-	indexes := newDispatcherIndexes()
+func BenchmarkUnindex(b *testing.B) {
+	d := newDispatcher(&Relay{})
 	for _, sub := range testSubs {
-		indexes.add(sub)
+		d.Index(sub)
 	}
 
 	b.ResetTimer()
 	for i := range b.N {
-		indexes.remove(testSubs[i%testSize])
+		d.Unindex(testSubs[i%testSize])
 	}
 }
 
-func BenchmarkIndexCandidates(b *testing.B) {
-	indexes := newDispatcherIndexes()
+func BenchmarkCandidates(b *testing.B) {
+	d := newDispatcher(&Relay{})
 	for _, sub := range testSubs {
-		indexes.add(sub)
+		d.Index(sub)
 	}
 
 	event := tests.RandomEvent()
 	b.ResetTimer()
 	for range b.N {
-		indexes.candidates(&event)
+		d.Candidates(&event)
 	}
 }

@@ -51,9 +51,4 @@ func (s subscription) Filters() nostr.Filters      { return slices.Clone(s.filte
 func (s subscription) CreatedAt() time.Time        { return s.createdAt }
 func (s subscription) Age() time.Duration          { return time.Since(s.createdAt) }
 func (s subscription) Matches(e *nostr.Event) bool { return s.filters.Match(e) }
-
-func (s subscription) Close(reason string) {
-	s.cancel()
-	s.client.relay.closeSubscription(s.uid)
-	s.client.send(closedResponse{ID: s.id, Reason: reason})
-}
+func (s subscription) Close(reason string)         { s.client.CloseWithReason(s.id, reason) }

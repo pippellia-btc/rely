@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -77,11 +78,14 @@ type Client interface {
 // - read errors in the [client.read] (automatic)
 // - the call to [client.Disconnect] (automatic or manual)
 type client struct {
-	uid         string
-	ip          string
-	connectedAt time.Time
-	auth        authState
+	uid  string
+	ip   string
+	auth authState
 
+	mu   sync.Mutex
+	subs map[string]subscription
+
+	connectedAt      time.Time
 	invalidMessages  int
 	droppedResponses atomic.Int64
 
@@ -123,20 +127,72 @@ func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		close(c.done)
 		c.relay.unregister <- c
+
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		for _, sub := range c.subs {
+			sub.cancel()
+			c.relay.unindex(sub)
+		}
 	}
 }
 
-// SubRequest is a request to the [Relay] to view the subscriptions of the client
-type subRequest struct {
-	client *client
-	reply  chan []Subscription
+// Open or overwrite a subscription.
+func (c *client) Open(s subscription) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	old, exists := c.subs[s.id]
+	if exists {
+		old.cancel()
+		c.subs[s.id] = s
+		c.relay.unindex(old)
+		c.relay.index(s)
+		return
+	}
+
+	c.subs[s.id] = s
+	c.relay.index(s)
+}
+
+// Close a subscription by its id, if present.
+func (c *client) Close(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	sub, exists := c.subs[id]
+	if exists {
+		sub.cancel()
+		delete(c.subs, id)
+		c.relay.unindex(sub)
+	}
+}
+
+// CloseWithReason closes a subscription by its id, if present, and sends a
+// CLOSED message with the provided reason.
+func (c *client) CloseWithReason(id, reason string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	sub, exists := c.subs[id]
+	if exists {
+		sub.cancel()
+		delete(c.subs, id)
+		c.relay.unindex(sub)
+		c.send(closedResponse{ID: id, Reason: reason})
+	}
 }
 
 func (c *client) Subscriptions() []Subscription {
-	reply := make(chan []Subscription)
-	request := subRequest{client: c, reply: reply}
-	c.relay.dispatcher.viewSubs <- request
-	return <-reply
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	subs := make([]Subscription, 0, len(c.subs))
+	for _, s := range c.subs {
+		subs = append(subs, s)
+	}
+	return subs
 }
 
 // The client reads from the websocket and parses the data into the appropriate structure (e.g. [reqRequest]).
@@ -226,7 +282,7 @@ func (c *client) read() {
 				continue
 			}
 
-			c.relay.closeSubscription(join(c.uid, close.ID))
+			c.Close(close.ID)
 
 		case "AUTH":
 			auth, err := parseAuth(decoder)
@@ -343,10 +399,7 @@ func (c *client) handleReq(req *reqRequest) *requestError {
 		return err
 	}
 
-	if err := c.relay.tryOpen(sub); err != nil {
-		sub.cancel()
-		return err
-	}
+	c.Open(sub)
 	return nil
 }
 
