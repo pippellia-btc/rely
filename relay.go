@@ -122,13 +122,19 @@ func (r *Relay) Wait() {
 	r.wg.Wait()
 }
 
+// Run syncronizes access to the clients map. It performs:
+//   - client registration
+//   - client unregistration
+//   - shutdown when the context is cancelled
 func (r *Relay) run(ctx context.Context) {
-	defer r.wg.Done()
+	defer func() {
+		r.shutdown()
+		r.wg.Done()
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			r.shutdown()
 			return
 
 		case client := <-r.register:
@@ -227,20 +233,7 @@ func (r *Relay) tryProcess(rq request) *requestError {
 	}
 }
 
-// tryOpen tries to add the subscription to the open subscription queue of the relay.
-// If it's full, it returns [ErrOverloaded] inside the [requestError]
-// func (r *Relay) tryOpen(s subscription) *requestError {
-// 	select {
-// 	case r.dispatcher.open <- s:
-// 		return nil
-// 	case <-r.done:
-// 		return &requestError{ID: s.id, Err: ErrShuttingDown}
-// 	default:
-// 		r.log.Warn("failed to open subscription", "uid", s.UID(), "error", ErrOverloaded)
-// 		return &requestError{ID: s.id, Err: ErrOverloaded}
-// 	}
-// }
-
+// Index sends the indexing update of subscription to the dispatcher.
 func (r *Relay) index(s subscription) {
 	select {
 	case r.dispatcher.updates <- update{operation: index, sub: s}:
@@ -250,6 +243,7 @@ func (r *Relay) index(s subscription) {
 	}
 }
 
+// Unindex sends the unindexing update of subscription to the dispatcher.
 func (r *Relay) unindex(s subscription) {
 	select {
 	case r.dispatcher.updates <- update{operation: unindex, sub: s}:
@@ -258,17 +252,6 @@ func (r *Relay) unindex(s subscription) {
 		return
 	}
 }
-
-// closeSubscription wait until it's able to send in the closing subscriptions queue,
-// or the relay shuts down. It's blocking because failure to enqueue implies a memory leak.
-// func (r *Relay) closeSubscription(sid string) {
-// 	select {
-// 	case r.dispatcher.close <- sID(sid):
-// 		return
-// 	case <-r.done:
-// 		return
-// 	}
-// }
 
 // ServeHTTP implements the [http.Handler] interface, handling WebSocket connections
 // and NIP-11 Relay Information Document requests.
@@ -310,10 +293,10 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	client := &client{
+		subs:        make(map[string]subscription, 10),
 		uid:         r.assignID(),
 		ip:          IP(req),
 		connectedAt: time.Now(),
-		subs:        make(map[string]subscription, 10),
 		relay:       r,
 		conn:        conn,
 		responses:   make(chan response, r.responseLimit),

@@ -37,9 +37,11 @@ type dispatcher struct {
 	relay *Relay
 }
 
-var (
-	index   int = 1
-	unindex int = -1
+type operation int
+
+const (
+	index operation = iota
+	unindex
 )
 
 // update represent either an indexing or unindexing of a subscription.
@@ -47,7 +49,7 @@ var (
 // For example, imagine a subscription being replaced with another (same ID, different filters).
 // The dispatcher must unindex the old, and index the new, in this order.
 type update struct {
-	operation int // either [index] or [unindex]
+	operation operation // either [index] or [unindex]
 	sub       subscription
 }
 
@@ -89,6 +91,7 @@ func (d *dispatcher) Run() {
 	}
 }
 
+// Broadcast the provided event to all matching subscriptions.
 func (d *dispatcher) Broadcast(e *nostr.Event) {
 	for _, id := range d.Candidates(e) {
 		sub := d.subscriptions[id]
