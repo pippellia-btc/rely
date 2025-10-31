@@ -313,7 +313,6 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		uid:         r.assignID(),
 		ip:          IP(req),
 		connectedAt: time.Now(),
-		auth:        authState{domain: r.domain},
 		subs:        make(map[string]subscription, 10),
 		relay:       r,
 		conn:        conn,

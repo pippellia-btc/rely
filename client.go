@@ -4,14 +4,30 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/goccy/go-json"
+	"github.com/nbd-wtf/go-nostr"
 
 	ws "github.com/gorilla/websocket"
+)
+
+const (
+	authChallengeBytes = 16
+	authTimeTolerance  = time.Minute
+)
+
+var (
+	ErrInvalidAuthRequest   = errors.New(`an AUTH request must follow this format: ['AUTH', {event_JSON}]`)
+	ErrInvalidTimestamp     = errors.New(`created_at must be within one minute from the current time`)
+	ErrInvalidAuthKind      = errors.New(`invalid AUTH kind`)
+	ErrInvalidAuthChallenge = errors.New(`invalid AUTH challenge`)
+	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
 )
 
 // The Client where the request comes from. All methods are safe for concurrent use.
@@ -78,15 +94,15 @@ type Client interface {
 // - read errors in the [client.read] (automatic)
 // - the call to [client.Disconnect] (automatic or manual)
 type client struct {
-	uid  string
-	ip   string
-	auth authState
+	mu        sync.Mutex
+	subs      map[string]subscription
+	pubkey    string
+	challenge string
 
-	mu   sync.Mutex
-	subs map[string]subscription
-
-	connectedAt      time.Time
+	uid              string
+	ip               string
 	invalidMessages  int
+	connectedAt      time.Time
 	droppedResponses atomic.Int64
 
 	// pointer to parent relay, which must only be used for:
@@ -103,23 +119,34 @@ type client struct {
 
 func (c *client) UID() string            { return c.uid }
 func (c *client) IP() string             { return c.ip }
-func (c *client) Pubkey() string         { return c.auth.Pubkey() }
 func (c *client) ConnectedAt() time.Time { return c.connectedAt }
 func (c *client) Age() time.Duration     { return time.Since(c.connectedAt) }
 func (c *client) DroppedResponses() int  { return int(c.droppedResponses.Load()) }
 func (c *client) RemainingCapacity() int { return cap(c.responses) - len(c.responses) }
 func (c *client) SendNotice(msg string)  { c.send(noticeResponse{Message: msg}) }
 
+func (c *client) SetPubkey(pk string) {
+	c.mu.Lock()
+	c.pubkey = pk
+	c.mu.Unlock()
+}
+
+func (c *client) Pubkey() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pubkey
+}
+
 func (c *client) SendAuth() {
 	bytes := make([]byte, authChallengeBytes)
 	rand.Read(bytes)
 	challenge := hex.EncodeToString(bytes)
 
-	c.auth.mu.Lock()
-	defer c.auth.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	c.auth.pubkey = ""
-	c.auth.challenge = challenge
+	c.pubkey = ""
+	c.challenge = challenge
 	c.send(authResponse{Challenge: challenge})
 }
 
@@ -292,12 +319,12 @@ func (c *client) read() {
 				continue
 			}
 
-			if err := c.auth.Validate(auth); err != nil {
+			if err := c.ValidateAuth(auth); err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
 				continue
 			}
 
-			c.auth.Set(auth.PubKey)
+			c.SetPubkey(auth.PubKey)
 			c.send(okResponse{ID: auth.ID, Saved: true})
 			c.relay.On.Auth(c)
 
@@ -417,6 +444,38 @@ func (c *client) handleCount(count *countRequest) *requestError {
 
 	count.client = c
 	return c.relay.tryProcess(count)
+}
+
+// ValidateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
+func (c *client) ValidateAuth(auth *authRequest) *requestError {
+	if auth.Event.Kind != nostr.KindClientAuthentication {
+		return &requestError{ID: auth.ID, Err: ErrInvalidAuthKind}
+	}
+
+	if time.Since(auth.CreatedAt.Time()).Abs() > authTimeTolerance {
+		return &requestError{ID: auth.ID, Err: ErrInvalidTimestamp}
+	}
+
+	if !strings.Contains(auth.Relay(), c.relay.domain) {
+		return &requestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
+	}
+
+	if !auth.Event.CheckID() {
+		return &requestError{ID: auth.ID, Err: ErrInvalidEventID}
+	}
+
+	match, err := auth.Event.CheckSignature()
+	if err != nil || !match {
+		return &requestError{ID: auth.ID, Err: ErrInvalidEventSignature}
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.challenge == "" || auth.Challenge() != c.challenge {
+		return &requestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
+	}
+	return nil
 }
 
 func (c *client) writeJSON(v any) error {
