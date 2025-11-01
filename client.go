@@ -394,7 +394,7 @@ func (c *client) write() {
 	}
 }
 
-func (c *client) handleEvent(e *eventRequest) *requestError {
+func (c *client) handleEvent(e eventRequest) *requestError {
 	for _, reject := range c.relay.Reject.Event {
 		if err := reject(c, e.Event); err != nil {
 			return &requestError{ID: e.Event.ID, Err: err}
@@ -405,7 +405,7 @@ func (c *client) handleEvent(e *eventRequest) *requestError {
 	return c.relay.tryProcess(e)
 }
 
-func (c *client) handleReq(req *reqRequest) *requestError {
+func (c *client) handleReq(req reqRequest) *requestError {
 	for _, reject := range c.relay.Reject.Req {
 		if err := reject(c, req.Filters); err != nil {
 			return &requestError{ID: req.id, Err: err}
@@ -431,7 +431,7 @@ func (c *client) handleReq(req *reqRequest) *requestError {
 	return nil
 }
 
-func (c *client) handleCount(count *countRequest) *requestError {
+func (c *client) handleCount(count countRequest) *requestError {
 	if c.relay.On.Count == nil {
 		// nip-45 is optional
 		return &requestError{ID: count.id, Err: ErrUnsupportedNIP45}
@@ -448,7 +448,7 @@ func (c *client) handleCount(count *countRequest) *requestError {
 }
 
 // ValidateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
-func (c *client) ValidateAuth(auth *authRequest) *requestError {
+func (c *client) ValidateAuth(auth authRequest) *requestError {
 	if auth.Event.Kind != nostr.KindClientAuthentication {
 		return &requestError{ID: auth.ID, Err: ErrInvalidAuthKind}
 	}

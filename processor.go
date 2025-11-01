@@ -55,7 +55,7 @@ func (p *processor) Run() {
 func (p *processor) Process(request request) {
 	ID := request.ID()
 	switch request := request.(type) {
-	case *eventRequest:
+	case eventRequest:
 		err := p.relay.On.Event(request.client, request.Event)
 		if err != nil {
 			request.client.send(okResponse{ID: ID, Saved: false, Reason: err.Error()})
@@ -65,7 +65,7 @@ func (p *processor) Process(request request) {
 		request.client.send(okResponse{ID: ID, Saved: true})
 		p.relay.Broadcast(request.Event)
 
-	case *reqRequest:
+	case reqRequest:
 		budget := request.client.RemainingCapacity()
 		ApplyBudget(budget, request.Filters...)
 
@@ -83,7 +83,7 @@ func (p *processor) Process(request request) {
 		}
 		request.client.send(eoseResponse{ID: ID})
 
-	case *countRequest:
+	case countRequest:
 		count, approx, err := p.relay.On.Count(request.client, request.Filters)
 		if err != nil {
 			request.client.send(closedResponse{ID: ID, Reason: err.Error()})

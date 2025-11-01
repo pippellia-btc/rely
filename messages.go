@@ -41,9 +41,9 @@ type eventRequest struct {
 	Event  *nostr.Event
 }
 
-func (e *eventRequest) UID() string     { return join(e.client.uid, e.Event.ID) }
-func (e *eventRequest) ID() string      { return e.Event.ID }
-func (e *eventRequest) IsExpired() bool { return e.client.isUnregistering.Load() }
+func (e eventRequest) UID() string     { return join(e.client.uid, e.Event.ID) }
+func (e eventRequest) ID() string      { return e.Event.ID }
+func (e eventRequest) IsExpired() bool { return e.client.isUnregistering.Load() }
 
 type reqRequest struct {
 	id  string
@@ -53,9 +53,9 @@ type reqRequest struct {
 	Filters nostr.Filters
 }
 
-func (r *reqRequest) UID() string     { return join(r.client.uid, r.id) }
-func (r *reqRequest) ID() string      { return r.id }
-func (r *reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
+func (r reqRequest) UID() string     { return join(r.client.uid, r.id) }
+func (r reqRequest) ID() string      { return r.id }
+func (r reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isUnregistering.Load() }
 
 type countRequest struct {
 	id      string
@@ -63,9 +63,9 @@ type countRequest struct {
 	client  *client
 }
 
-func (c *countRequest) UID() string     { return join(c.client.uid, c.id) }
-func (c *countRequest) ID() string      { return c.id }
-func (c *countRequest) IsExpired() bool { return c.client.isUnregistering.Load() }
+func (c countRequest) UID() string     { return join(c.client.uid, c.id) }
+func (c countRequest) ID() string      { return c.id }
+func (c countRequest) IsExpired() bool { return c.client.isUnregistering.Load() }
 
 type closeRequest struct {
 	ID string
@@ -75,7 +75,7 @@ type authRequest struct {
 	*nostr.Event
 }
 
-func (a *authRequest) Challenge() string {
+func (a authRequest) Challenge() string {
 	for _, tag := range a.Tags {
 		if len(tag) > 1 && tag[0] == "challenge" {
 			return tag[1]
@@ -84,7 +84,7 @@ func (a *authRequest) Challenge() string {
 	return ""
 }
 
-func (a *authRequest) Relay() string {
+func (a authRequest) Relay() string {
 	for _, tag := range a.Tags {
 		if len(tag) > 1 && tag[0] == "relay" {
 			return tag[1]
@@ -132,75 +132,75 @@ func parseLabel(d *json.Decoder) (string, error) {
 }
 
 // parseEvent parses the
-func parseEvent(d *json.Decoder) (*eventRequest, *requestError) {
-	event := &eventRequest{Event: new(nostr.Event)}
+func parseEvent(d *json.Decoder) (eventRequest, *requestError) {
+	event := eventRequest{Event: new(nostr.Event)}
 	if err := d.Decode(event.Event); err != nil {
-		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidEventRequest, err)}
+		return eventRequest{}, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidEventRequest, err)}
 	}
 	return event, nil
 }
 
 // parseAuth parses the json array into an [authRequest].
-func parseAuth(d *json.Decoder) (*authRequest, *requestError) {
-	auth := &authRequest{Event: new(nostr.Event)}
+func parseAuth(d *json.Decoder) (authRequest, *requestError) {
+	auth := authRequest{Event: new(nostr.Event)}
 	if err := d.Decode(auth.Event); err != nil {
-		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidAuthRequest, err)}
+		return authRequest{}, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidAuthRequest, err)}
 	}
 	return auth, nil
 }
 
-func parseReq(d *json.Decoder) (*reqRequest, *requestError) {
-	req := &reqRequest{}
+func parseReq(d *json.Decoder) (reqRequest, *requestError) {
+	req := reqRequest{}
 	err := d.Decode(&req.id)
 	if err != nil {
-		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
+		return reqRequest{}, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
 	}
 
 	if len(req.id) < 1 || len(req.id) > 64 {
-		return nil, &requestError{ID: req.id, Err: ErrInvalidSubscriptionID}
+		return reqRequest{}, &requestError{ID: req.id, Err: ErrInvalidSubscriptionID}
 	}
 
 	req.Filters, err = parseFilters(d)
 	if err != nil {
-		return nil, &requestError{ID: req.id, Err: err}
+		return reqRequest{}, &requestError{ID: req.id, Err: err}
 	}
 
 	if len(req.Filters) == 0 {
-		return nil, &requestError{ID: req.id, Err: ErrInvalidReqRequest}
+		return reqRequest{}, &requestError{ID: req.id, Err: ErrInvalidReqRequest}
 	}
 	return req, nil
 }
 
-func parseCount(d *json.Decoder) (*countRequest, *requestError) {
-	count := &countRequest{}
+func parseCount(d *json.Decoder) (countRequest, *requestError) {
+	count := countRequest{}
 	err := d.Decode(&count.id)
 	if err != nil {
-		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
+		return countRequest{}, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
 	}
 
 	if len(count.id) < 1 || len(count.id) > 64 {
-		return nil, &requestError{ID: count.id, Err: ErrInvalidSubscriptionID}
+		return countRequest{}, &requestError{ID: count.id, Err: ErrInvalidSubscriptionID}
 	}
 
 	count.Filters, err = parseFilters(d)
 	if err != nil {
-		return nil, &requestError{ID: count.id, Err: err}
+		return countRequest{}, &requestError{ID: count.id, Err: err}
 	}
 
 	if len(count.Filters) == 0 {
-		return nil, &requestError{ID: count.id, Err: ErrInvalidCountRequest}
+		return countRequest{}, &requestError{ID: count.id, Err: ErrInvalidCountRequest}
 	}
 	return count, nil
 }
 
-func parseClose(d *json.Decoder) (*closeRequest, *requestError) {
-	close := &closeRequest{}
+func parseClose(d *json.Decoder) (closeRequest, *requestError) {
+	close := closeRequest{}
 	if err := d.Decode(&close.ID); err != nil {
-		return nil, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
+		return closeRequest{}, &requestError{Err: fmt.Errorf("%w: %w", ErrInvalidSubscriptionID, err)}
 	}
 
 	if len(close.ID) < 1 || len(close.ID) > 64 {
-		return nil, &requestError{ID: close.ID, Err: ErrInvalidSubscriptionID}
+		return closeRequest{}, &requestError{ID: close.ID, Err: ErrInvalidSubscriptionID}
 	}
 	return close, nil
 }
