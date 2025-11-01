@@ -73,7 +73,7 @@ func (p *processor) Process(request request) {
 		if err != nil {
 			if request.ctx.Err() == nil {
 				// error not caused by the user's CLOSE, so we must close the subscription
-				request.client.CloseWithReason(ID, err.Error())
+				request.client.CloseSubWithReason(ID, err.Error())
 			}
 			return
 		}

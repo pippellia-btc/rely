@@ -31,7 +31,7 @@ var (
 	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
 )
 
-// The Client where the request comes from. All methods are safe for concurrent use.
+// Client represents the nostr client connected to the relay. All methods are safe for concurrent use.
 type Client interface {
 	// UID is the unique identified for the client, useful to tie its identity to
 	// external statistics or resources.
@@ -155,14 +155,7 @@ func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		close(c.done)
 		c.relay.unregister <- c
-
-		c.mu.Lock()
-		defer c.mu.Unlock()
-
-		for _, sub := range c.subs {
-			sub.cancel()
-			c.relay.unindex(sub)
-		}
+		c.CloseAllSubs()
 	}
 }
 
@@ -184,8 +177,8 @@ func (c *client) Open(s subscription) {
 	c.relay.index(s)
 }
 
-// Close a subscription by its id, if present.
-func (c *client) Close(id string) {
+// CloseSub closes a subscription by its id, if present.
+func (c *client) CloseSub(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -197,9 +190,9 @@ func (c *client) Close(id string) {
 	}
 }
 
-// CloseWithReason closes a subscription by its id, if present, and sends a
+// CloseSubWithReason closes a subscription by its id, if present, and sends a
 // CLOSED message with the provided reason.
-func (c *client) CloseWithReason(id, reason string) {
+func (c *client) CloseSubWithReason(id, reason string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -209,6 +202,18 @@ func (c *client) CloseWithReason(id, reason string) {
 		delete(c.subs, id)
 		c.relay.unindex(sub)
 		c.send(closedResponse{ID: id, Reason: reason})
+	}
+}
+
+// CloseAllSubs closes all subscriptions of the client.
+func (c *client) CloseAllSubs() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for id, sub := range c.subs {
+		sub.cancel()
+		delete(c.subs, id)
+		c.relay.unindex(sub)
 	}
 }
 
@@ -243,7 +248,7 @@ func (c *client) read() {
 		messageType, reader, err := c.conn.NextReader()
 		if err != nil {
 			if isUnexpectedClose(err) {
-				c.relay.log.Info("unexpected close error from IP %s: %v", c.ip, err)
+				c.relay.log.Debug("unexpected close error from IP %s: %v", c.ip, err)
 			}
 			return
 		}
@@ -310,7 +315,7 @@ func (c *client) read() {
 				continue
 			}
 
-			c.Close(close.ID)
+			c.CloseSub(close.ID)
 
 		case "AUTH":
 			auth, err := parseAuth(decoder)
@@ -378,7 +383,7 @@ func (c *client) write() {
 		case response := <-c.responses:
 			if err := c.writeJSON(response); err != nil {
 				if isUnexpectedClose(err) {
-					c.relay.log.Info("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
+					c.relay.log.Debug("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
 				}
 				return
 			}
@@ -386,7 +391,7 @@ func (c *client) write() {
 		case <-ticker.C:
 			if err := c.writePing(); err != nil {
 				if isUnexpectedClose(err) {
-					c.relay.log.Info("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
+					c.relay.log.Debug("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
 				}
 				return
 			}

@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	DefaultWriteWait      time.Duration = 10 * time.Second
-	DefaultPongWait       time.Duration = 60 * time.Second
-	DefaultPingPeriod     time.Duration = 45 * time.Second
-	DefaultMaxMessageSize int64         = 500000 // 0.5MB
-	DefaultBufferSize     int           = 1024   // 1KB
+	writeWait      time.Duration = 10 * time.Second
+	pongWait       time.Duration = 60 * time.Second
+	pingPeriod     time.Duration = 45 * time.Second
+	maxMessageSize int64         = 500000 // 0.5MB
+	bufferSize     int           = 1024   // 1KB
 )
 
 type systemSettings struct {
@@ -93,14 +93,14 @@ type websocketSettings struct {
 func newWebsocketSettings() websocketSettings {
 	return websocketSettings{
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  DefaultBufferSize,
-			WriteBufferSize: DefaultBufferSize,
+			ReadBufferSize:  bufferSize,
+			WriteBufferSize: bufferSize,
 			CheckOrigin:     func(r *http.Request) bool { return true },
 		},
-		writeWait:      DefaultWriteWait,
-		pongWait:       DefaultPongWait,
-		pingPeriod:     DefaultPingPeriod,
-		maxMessageSize: DefaultMaxMessageSize,
+		writeWait:      writeWait,
+		pongWait:       pongWait,
+		pingPeriod:     pingPeriod,
+		maxMessageSize: maxMessageSize,
 	}
 }
 

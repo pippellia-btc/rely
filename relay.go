@@ -17,6 +17,10 @@ var (
 	ErrUnsupportedNIP45 = errors.New("NIP-45 COUNT is not supported")
 )
 
+// Relay is the fundamental structure of the rely package, acting as an orchestrator
+// for the other specialized actors in the system.
+// Its main responsabilities are to register and unregister [clients], and route
+// work to the specialized actors like [dispatcher] and [processor].
 type Relay struct {
 	clients    map[*client]struct{}
 	register   chan *client
@@ -38,7 +42,7 @@ type Relay struct {
 
 // NewRelay creates a new Relay instance with sane defaults and customizable internal behavior.
 // Customize its structure with functional options (e.g., [WithDomain], [WithQueueCapacity]).
-// Customize its behaviour by writing OnEvent, OnReq and other [RelayFunctions].
+// Customize its behaviour by defining On.Event, On.Req and other [Hooks].
 //
 // Example:
 //
@@ -68,6 +72,53 @@ func NewRelay(opts ...Option) *Relay {
 
 	r.validate()
 	return r
+}
+
+// Broadcast the event to all clients whose subscriptions match it.
+func (r *Relay) Broadcast(e *nostr.Event) error {
+	select {
+	case r.dispatcher.broadcast <- e:
+		return nil
+	case <-r.done:
+		return ErrShuttingDown
+	default:
+		r.log.Warn("failed to broadcast event", "id", e.ID, "error", ErrOverloaded)
+		return ErrOverloaded
+	}
+}
+
+// tryProcess tries to add the request to the processing queue of the relay.
+// If it's full, it returns [ErrOverloaded] inside the [requestError]
+func (r *Relay) tryProcess(rq request) *requestError {
+	select {
+	case r.processor.queue <- rq:
+		return nil
+	case <-r.done:
+		return &requestError{ID: rq.ID(), Err: ErrShuttingDown}
+	default:
+		r.log.Warn("failed to enqueue request", "uid", rq.UID(), "error", ErrOverloaded)
+		return &requestError{ID: rq.ID(), Err: ErrOverloaded}
+	}
+}
+
+// Index sends the indexing update of subscription to the dispatcher.
+func (r *Relay) index(s subscription) {
+	select {
+	case r.dispatcher.updates <- update{operation: index, sub: s}:
+		return
+	case <-r.done:
+		return
+	}
+}
+
+// Unindex sends the unindexing update of subscription to the dispatcher.
+func (r *Relay) unindex(s subscription) {
+	select {
+	case r.dispatcher.updates <- update{operation: unindex, sub: s}:
+		return
+	case <-r.done:
+		return
+	}
 }
 
 // StartAndServe starts the relay, listens to the provided address and handles http requests.
@@ -206,53 +257,6 @@ drainUnregister:
 	}
 }
 
-// Broadcast the event to all clients whose subscriptions match it.
-func (r *Relay) Broadcast(e *nostr.Event) error {
-	select {
-	case r.dispatcher.broadcast <- e:
-		return nil
-	case <-r.done:
-		return ErrShuttingDown
-	default:
-		r.log.Warn("failed to broadcast event", "id", e.ID, "error", ErrOverloaded)
-		return ErrOverloaded
-	}
-}
-
-// tryProcess tries to add the request to the processing queue of the relay.
-// If it's full, it returns [ErrOverloaded] inside the [requestError]
-func (r *Relay) tryProcess(rq request) *requestError {
-	select {
-	case r.processor.queue <- rq:
-		return nil
-	case <-r.done:
-		return &requestError{ID: rq.ID(), Err: ErrShuttingDown}
-	default:
-		r.log.Warn("failed to enqueue request", "uid", rq.UID(), "error", ErrOverloaded)
-		return &requestError{ID: rq.ID(), Err: ErrOverloaded}
-	}
-}
-
-// Index sends the indexing update of subscription to the dispatcher.
-func (r *Relay) index(s subscription) {
-	select {
-	case r.dispatcher.updates <- update{operation: index, sub: s}:
-		return
-	case <-r.done:
-		return
-	}
-}
-
-// Unindex sends the unindexing update of subscription to the dispatcher.
-func (r *Relay) unindex(s subscription) {
-	select {
-	case r.dispatcher.updates <- update{operation: unindex, sub: s}:
-		return
-	case <-r.done:
-		return
-	}
-}
-
 // ServeHTTP implements the [http.Handler] interface, handling WebSocket connections
 // and NIP-11 Relay Information Document requests.
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -284,7 +288,6 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // ServeWS upgrades the http request to a websocket, creates a [client], and registers it with the [Relay].
-// The client will then read and write to the websocket in two separate goroutines, preventing multiple readers/writers.
 func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 	conn, err := r.upgrader.Upgrade(w, req, nil)
 	if err != nil {

@@ -138,7 +138,7 @@ type WhenHooks struct {
 
 func DefaultWhenHooks() WhenHooks {
 	return WhenHooks{
-		GreedyClient: DisconnectOnDrops(200),
+		GreedyClient: DisconnectOnDrops(50),
 	}
 }
 

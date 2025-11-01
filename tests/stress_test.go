@@ -42,6 +42,12 @@ const (
 	relayFailProbability        float32 = 0.00
 	relayDisconnectProbability  float32 = 0.01
 	clientDisconnectProbability float32 = 0.01
+
+	writeWait      time.Duration = 10 * time.Second
+	pongWait       time.Duration = 60 * time.Second
+	pingPeriod     time.Duration = 45 * time.Second
+	maxMessageSize int64         = 500000 // 0.5MB
+	bufferSize     int           = 1024   // 1KB
 )
 
 func TestRandom(t *testing.T) {
@@ -236,7 +242,7 @@ func clientMadness(
 }
 
 func (c *client) write(ctx context.Context, cancel context.CancelFunc) {
-	pingTicker := time.NewTicker(rely.DefaultPingPeriod)
+	pingTicker := time.NewTicker(pingPeriod)
 	writeTicker := time.NewTicker(time.Second)
 
 	defer func() {
@@ -260,7 +266,7 @@ func (c *client) write(ctx context.Context, cancel context.CancelFunc) {
 			data := c.generateRequest()
 			size := int64(len(data))
 
-			c.conn.SetWriteDeadline(time.Now().Add(rely.DefaultWriteWait))
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			err := c.conn.WriteMessage(websocket.TextMessage, data)
 			if err != nil {
 				if IsBadError(err) {
@@ -273,7 +279,7 @@ func (c *client) write(ctx context.Context, cancel context.CancelFunc) {
 			dataSent.Add(size)
 
 		case <-pingTicker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(rely.DefaultWriteWait))
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			err := c.conn.WriteMessage(websocket.PingMessage, nil)
 			if err != nil {
 				if IsBadError(err) {
@@ -291,9 +297,9 @@ func (c *client) read(ctx context.Context, cancel context.CancelFunc) {
 		c.conn.Close()
 	}()
 
-	c.conn.SetReadLimit(rely.DefaultMaxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(rely.DefaultPongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(rely.DefaultPongWait)); return nil })
+	c.conn.SetReadLimit(maxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 
 	for {
 		select {
