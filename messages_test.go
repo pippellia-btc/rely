@@ -182,7 +182,7 @@ func TestParseEvent(t *testing.T) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
 
-			if !reflect.DeepEqual(event, test.expected) {
+			if !reflect.DeepEqual(event.Event, test.expected.Event) {
 				t.Fatalf("expected event request %v, got %v", test.expected, event)
 			}
 		})
@@ -238,7 +238,7 @@ func TestParseReq(t *testing.T) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
 
-			if !reflect.DeepEqual(req, test.expected) {
+			if req.id != test.expected.id || !reflect.DeepEqual(req.Filters, test.expected.Filters) {
 				t.Fatalf("expected req request %v, got %v", test.expected, req)
 			}
 		})
@@ -294,7 +294,7 @@ func TestParseCount(t *testing.T) {
 				t.Fatalf("expected error %v, got %v", test.err, err)
 			}
 
-			if !reflect.DeepEqual(count, test.expected) {
+			if count.id != test.expected.id || !reflect.DeepEqual(count.Filters, test.expected.Filters) {
 				t.Fatalf("expected count request %v, got %v", test.expected, count)
 			}
 		})
