@@ -485,8 +485,21 @@ func (c *client) ValidateAuth(auth authRequest) *requestError {
 }
 
 func (c *client) writeJSON(v any) error {
+	// writeJSON is equivalent to [ws.Conn.WriteJSON],
+	// but uses go-json instead of the standard library for better performance
+
 	c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
-	return c.conn.WriteJSON(v)
+	w, err := c.conn.NextWriter(ws.TextMessage)
+	if err != nil {
+		return err
+	}
+
+	err1 := json.NewEncoder(w).Encode(v)
+	err2 := w.Close()
+	if err1 != nil {
+		return err1
+	}
+	return err2
 }
 
 func (c *client) writeCloseNormal() error {
