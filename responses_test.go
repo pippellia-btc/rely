@@ -2,6 +2,7 @@ package rely
 
 import (
 	"fmt"
+	"io"
 	"slices"
 	"testing"
 
@@ -123,6 +124,26 @@ func BenchmarkMarshalRawEventResponse(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		_, err := response.MarshalJSON()
+		if err != nil {
+			b.Fatalf("benchmark failed: %v", err)
+		}
+	}
+}
+
+func BenchmarkEncodeRawEventResponse2(b *testing.B) {
+	bytes, err := benchEventResponse.Event.MarshalJSON()
+	if err != nil {
+		b.Fatalf("benchmark failed: %v", err)
+	}
+
+	response := rawEventResponse{
+		ID:    benchEventResponse.ID,
+		Event: json.RawMessage(bytes),
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		err := json.NewEncoder(io.Discard).Encode(response)
 		if err != nil {
 			b.Fatalf("benchmark failed: %v", err)
 		}

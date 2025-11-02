@@ -381,7 +381,12 @@ func (c *client) write() {
 			return
 
 		case response := <-c.responses:
-			if err := c.writeJSON(response); err != nil {
+			bytes, err := response.MarshalJSON()
+			if err != nil {
+				c.relay.log.Error("failed to marshal response", "response", response, "error", err)
+			}
+
+			if err := c.writeMessage(bytes); err != nil {
 				if isUnexpectedClose(err) {
 					c.relay.log.Debug("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
 				}
@@ -484,22 +489,9 @@ func (c *client) ValidateAuth(auth authRequest) *requestError {
 	return nil
 }
 
-func (c *client) writeJSON(v any) error {
-	// writeJSON is equivalent to [ws.Conn.WriteJSON],
-	// but uses go-json instead of the standard library for better performance
-
+func (c *client) writeMessage(b []byte) error {
 	c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
-	w, err := c.conn.NextWriter(ws.TextMessage)
-	if err != nil {
-		return err
-	}
-
-	err1 := json.NewEncoder(w).Encode(v)
-	err2 := w.Close()
-	if err1 != nil {
-		return err1
-	}
-	return err2
+	return c.conn.WriteMessage(ws.TextMessage, b)
 }
 
 func (c *client) writeCloseNormal() error {
