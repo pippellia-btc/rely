@@ -9,6 +9,45 @@ import (
 	"github.com/nbd-wtf/go-nostr"
 )
 
+func TestMarshalEventResponse(t *testing.T) {
+	tests := []struct {
+		response eventResponse
+		expected []byte
+	}{
+		{
+			response: eventResponse{
+				ID:    "sub-1",
+				Event: &nostr.Event{},
+			},
+			expected: []byte(`["EVENT","sub-1",{"kind":0,"created_at":0,"tags":[],"content":""}]`),
+		},
+		{
+			response: eventResponse{
+				ID:    `sub"123\id\n`, // unsafe ID
+				Event: &nostr.Event{},
+			},
+			expected: []byte(`["EVENT","sub\"123\\id\\n",{"kind":0,"created_at":0,"tags":[],"content":""}]`),
+		},
+	}
+
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("Case=%d", i), func(t *testing.T) {
+			res, err := test.response.MarshalJSON()
+			if err != nil {
+				t.Fatalf("expected nil, got %v", err)
+			}
+
+			if !json.Valid(res) {
+				t.Fatalf("got invalid json %v", string(res))
+			}
+
+			if !slices.Equal(res, test.expected) {
+				t.Fatalf("expected %v, got %v", string(test.expected), string(res))
+			}
+		})
+	}
+}
+
 func TestMarshalRawEventResponse(t *testing.T) {
 	tests := []struct {
 		response rawEventResponse
@@ -38,11 +77,11 @@ func TestMarshalRawEventResponse(t *testing.T) {
 			}
 
 			if !json.Valid(res) {
-				t.Fatalf("got invalid json %v", res)
+				t.Fatalf("got invalid json %v", string(res))
 			}
 
 			if !slices.Equal(res, test.expected) {
-				t.Fatalf("expected %v, got %v", test.expected, res)
+				t.Fatalf("expected %v, got %v", string(test.expected), string(res))
 			}
 		})
 	}

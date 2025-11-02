@@ -3,6 +3,7 @@ package rely
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 
 	"github.com/goccy/go-json"
 
@@ -10,9 +11,9 @@ import (
 )
 
 var (
-	openArray  = []byte(`[`)
-	closeArray = []byte(`]`)
-	comma      = []byte(`,`)
+	openArray  byte = '['
+	closeArray byte = ']'
+	comma      byte = ','
 
 	eventLabel = []byte(`"EVENT"`)
 )
@@ -26,7 +27,7 @@ type okResponse struct {
 }
 
 func (o okResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]any{"OK", o.ID, o.Saved, o.Reason})
+	return json.Marshal([]string{"OK", o.ID, strconv.FormatBool(o.Saved), o.Reason})
 }
 
 type closedResponse struct {
@@ -44,7 +45,28 @@ type eventResponse struct {
 }
 
 func (e eventResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]any{"EVENT", e.ID, e.Event})
+	id, err := json.Marshal(e.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal ID: %w", err)
+	}
+
+	event, err := e.Event.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	capacity := len(eventLabel) + len(id) + len(event) + 4
+	buf := bytes.Buffer{}
+	buf.Grow(capacity)
+
+	buf.WriteByte(openArray)
+	buf.Write(eventLabel)
+	buf.WriteByte(comma)
+	buf.Write(id)
+	buf.WriteByte(comma)
+	buf.Write(event)
+	buf.WriteByte(closeArray)
+	return buf.Bytes(), nil
 }
 
 // rawEventResponse represent the same message [eventResponse], but holds the Event
@@ -56,22 +78,22 @@ type rawEventResponse struct {
 }
 
 func (e rawEventResponse) MarshalJSON() ([]byte, error) {
-	idBytes, err := json.Marshal(e.ID)
+	id, err := json.Marshal(e.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal ID: %w", err)
 	}
 
-	capacity := len(openArray) + len(eventLabel) + len(comma) + len(idBytes) + len(comma) + len(e.Event) + len(closeArray)
+	capacity := len(eventLabel) + len(id) + len(e.Event) + 4
 	buf := bytes.Buffer{}
 	buf.Grow(capacity)
 
-	buf.Write(openArray)
+	buf.WriteByte(openArray)
 	buf.Write(eventLabel)
-	buf.Write(comma)
-	buf.Write(idBytes)
-	buf.Write(comma)
+	buf.WriteByte(comma)
+	buf.Write(id)
+	buf.WriteByte(comma)
 	buf.Write(e.Event)
-	buf.Write(closeArray)
+	buf.WriteByte(closeArray)
 	return buf.Bytes(), nil
 }
 
@@ -110,6 +132,5 @@ func (c countResponse) MarshalJSON() ([]byte, error) {
 		Count  int64 `json:"count"`
 		Approx bool  `json:"approximate,omitempty"`
 	}
-
 	return json.Marshal([]any{"COUNT", c.ID, payload{Count: c.Count, Approx: c.Approx}})
 }
