@@ -1,6 +1,7 @@
 package rely
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -86,19 +87,39 @@ func (d *dispatcher) Run() {
 			}
 
 		case event := <-d.broadcast:
-			d.Broadcast(event)
+			err := d.Broadcast(event)
+			if err != nil {
+				d.relay.log.Error("failed to broadcast event", "eventID", event.ID, "error", err)
+			}
 		}
 	}
 }
 
 // Broadcast the provided event to all matching subscriptions.
-func (d *dispatcher) Broadcast(e *nostr.Event) {
-	for _, id := range d.Candidates(e) {
+// As a performance optimisation, we marshal the event only once, and not
+// once per matching subscription.
+func (d *dispatcher) Broadcast(e *nostr.Event) error {
+	candidates := d.Candidates(e)
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	var err error
+	var response rawEventResponse
+
+	response.Event, err = e.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal event %w", err)
+	}
+
+	for _, id := range candidates {
 		sub := d.subscriptions[id]
 		if sub.Matches(e) {
-			sub.client.send(eventResponse{ID: sub.id, Event: e})
+			response.ID = sub.id
+			sub.client.send(response)
 		}
 	}
+	return nil
 }
 
 // Candidates returns a slice of candidate subscription ids that are likely to match the provided event.
