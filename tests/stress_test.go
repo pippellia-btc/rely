@@ -60,8 +60,17 @@ func TestRandom(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), testDuration)
 		defer cancel()
 
+		f, err := os.OpenFile("test.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		handler := slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelError})
+		logger := slog.New(handler)
+
 		relay := rely.NewRelay(
-			rely.WithLogger(slog.New(slog.DiscardHandler)), // discarting all logs
+			rely.WithLogger(logger),
 		)
 
 		relay.On.Connect = dummyOnConnect
