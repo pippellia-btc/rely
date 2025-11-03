@@ -54,7 +54,7 @@ type Client interface {
 	// Subscriptions returns a snapshot of the currently active [Subscription]s of the client.
 	Subscriptions() []Subscription
 
-	// SendNotice to the client, useful for greeting, warnings and other informational messages.
+	// SendNotice to the client, useful for greetings, warnings and other informational messages.
 	SendNotice(msg string)
 
 	// SendAuth sends the client a newly generated AUTH challenge.

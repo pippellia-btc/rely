@@ -29,8 +29,9 @@ func WithDomain(d string) Option {
 	return func(r *Relay) { r.domain = strings.TrimSpace(d) }
 }
 
-// WithInfo sets a custom NIP-11 (Relay Information Document) JSON body returned at the '/' endpoint.
-// The provided struct is marshaled into the JSON payload. If not set, a default document is used.
+// WithInfo sets a custom NIP-11 (Relay Information Document) JSON body returned
+// when a request includes `Accept: application/nostr+json`.
+// If not set, a default document is used.
 func WithInfo(info nip11.RelayInformationDocument) Option {
 	return func(r *Relay) {
 		json, err := json.Marshal(info)
@@ -65,7 +66,7 @@ func WithMaxProcessors(n int) Option {
 // WithClientResponseLimit sets the maximum number of responses that can be buffered and sent
 // to a single client connection before backpressure is applied. Must be greater than 0.
 //
-// For each REQ, the framework dynamically adjusts the "limit" across all filters
+// For each REQ, the framework dynamically adjusts the "limit" field across all filters
 // to be less than the remaining capacity of the client's response channel:
 //
 //	sum filter's limit <= responseLimit - len(client.responses)
