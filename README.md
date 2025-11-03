@@ -159,6 +159,14 @@ However, the Dispatcher is not the ultimate authority on the subscriptions state
 Rely fetures unit tests for components that make sense to test in isolation.
 More importantly, we have a [random stress test](https://github.com/pippellia-btc/rely/blob/main/tests/stress_test.go) where the relay is bombarded with thousands of connections, events, filters, and abrupt disconnections every second. This test alone allowed the discovery of hard concurrency bugs and race conditions impossible to detect with simplistic unit tests.
 
+## Used by
+
+This section lists project and repositories that are using rely in production.
+
+- [ContextVM](https://github.com/ContextVM/contextvm-relay)
+- [Zapstore](https://github.com/zapstore/relay)
+- [Vertex](https://github.com/vertex-lab/relay)
+
 ## FAQs
 
 <details>
