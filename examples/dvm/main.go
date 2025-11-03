@@ -12,7 +12,7 @@ import (
 
 /*
 This programs shows how nostr events can be used as requests for short or long lived
-asyncronous jobs like DVMs.
+asynchronous jobs like DVMs.
 */
 
 var (
@@ -67,7 +67,7 @@ func MalwareScan(request *nostr.Event) *nostr.Event {
 		return responseEvent(request, false)
 
 	default:
-		// an error occured
+		// an error occurred
 		return errorEvent(request)
 	}
 }

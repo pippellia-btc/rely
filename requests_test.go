@@ -202,7 +202,7 @@ func TestParseReq(t *testing.T) {
 			err:  &requestError{Err: ErrInvalidSubscriptionID},
 		},
 		{
-			name: "incorrect lenght",
+			name: "incorrect length",
 			data: []byte(`["REQ", "abc"]`),
 			err:  &requestError{ID: "abc", Err: ErrInvalidReqRequest},
 		},
@@ -258,7 +258,7 @@ func TestParseCount(t *testing.T) {
 			err:  &requestError{Err: ErrInvalidSubscriptionID},
 		},
 		{
-			name: "incorrect lenght",
+			name: "incorrect length",
 			data: []byte(`["COUNT", "abc"]`),
 			err:  &requestError{ID: "abc", Err: ErrInvalidCountRequest},
 		},

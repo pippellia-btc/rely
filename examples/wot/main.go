@@ -57,7 +57,7 @@ func main() {
 		return ErrRateLimited
 	})
 
-	// send an AUTH challange as soon as the client connects
+	// send an AUTH challenge as soon as the client connects
 	relay.On.Connect = func(c rely.Client) { c.SendAuth() }
 
 	relay.On.Event = func(c rely.Client, e *nostr.Event) error {

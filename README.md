@@ -1,6 +1,9 @@
 # rely
 A framework for building super custom [Nostr](https://github.com/nostr-protocol/nostr) relays you can *rely* on. Written in Go, it's designed to be simple and performant, while providing an exeptional developer experience.
 
+<a href="https://pkg.go.dev/github.com/pippellia-btc/rely"><img src="https://pkg.go.dev/badge/github.com/pippellia-btc/rely.svg" alt="Go Reference"></a>
+[![Go Report Card](https://goreportcard.com/badge/github.com/pippellia-btc/rely)](https://goreportcard.com/report/github.com/pippellia-btc/rely)
+
 ## Installation
 ```
 go get github.com/pippellia-btc/rely
