@@ -101,7 +101,6 @@ func (t *timeIndex) Add(f nostr.Filter, sid sID) {
 }
 
 func (t *timeIndex) add(interval intervalFilter) {
-	t.advance()
 	if interval.IsInvalid() {
 		return
 	}
@@ -130,8 +129,8 @@ func (t *timeIndex) Remove(f nostr.Filter, sid sID) {
 }
 
 func (t *timeIndex) remove(interval intervalFilter) {
-	t.advance()
 	if interval.IsInvalid() {
+		// the interval wasn't index, so there is nothing to remove
 		return
 	}
 
