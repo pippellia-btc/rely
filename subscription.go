@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // Subscription represent the nostr subscription created by a [Client] with a REQ.
@@ -19,7 +19,7 @@ type Subscription interface {
 	ID() string
 
 	// Filters returns the filters of the subscription.
-	Filters() nostr.Filters
+	Filters() []nostr.Filter
 
 	// Matches returns whether any of the subscription's filters match the provided event.
 	Matches(*nostr.Event) bool
@@ -38,7 +38,7 @@ type Subscription interface {
 type subscription struct {
 	uid     string
 	id      string
-	filters nostr.Filters
+	filters []nostr.Filter
 
 	createdAt time.Time
 	cancel    context.CancelFunc // calling it cancels the context of the associated REQ
@@ -47,8 +47,15 @@ type subscription struct {
 
 func (s subscription) UID() string                 { return s.uid }
 func (s subscription) ID() string                  { return s.id }
-func (s subscription) Filters() nostr.Filters      { return slices.Clone(s.filters) }
+func (s subscription) Filters() []nostr.Filter      { return slices.Clone(s.filters) }
 func (s subscription) CreatedAt() time.Time        { return s.createdAt }
 func (s subscription) Age() time.Duration          { return time.Since(s.createdAt) }
-func (s subscription) Matches(e *nostr.Event) bool { return s.filters.Match(e) }
+func (s subscription) Matches(e *nostr.Event) bool {
+	for _, f := range s.filters {
+		if f.Matches(*e) {
+			return true
+		}
+	}
+	return false
+}
 func (s subscription) Close(reason string)         { s.client.CloseSubWithReason(s.id, reason) }

@@ -7,7 +7,7 @@ import (
 	"log"
 	"slices"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/rely"
 	. "github.com/pippellia-btc/rely"
 )
@@ -36,7 +36,7 @@ func main() {
 	}
 }
 
-func AuthedOnDMs(client rely.Client, filters nostr.Filters) error {
+func AuthedOnDMs(client rely.Client, filters []nostr.Filter) error {
 	for _, filter := range filters {
 		if !slices.Contains(filter.Kinds, 4) {
 			continue

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/rely"
 )
 

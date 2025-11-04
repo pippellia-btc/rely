@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 
 	ws "github.com/gorilla/websocket"
 )
@@ -330,8 +330,8 @@ func (c *client) read() {
 				continue
 			}
 
-			c.SetPubkey(auth.PubKey)
-			c.send(okResponse{ID: auth.ID, Saved: true})
+			c.SetPubkey(auth.PubKey.Hex())
+			c.send(okResponse{ID: auth.ID.Hex(), Saved: true})
 			c.relay.On.Auth(c)
 
 		default:
@@ -407,7 +407,7 @@ func (c *client) write() {
 func (c *client) handleEvent(e eventRequest) *requestError {
 	for _, reject := range c.relay.Reject.Event {
 		if err := reject(c, e.Event); err != nil {
-			return &requestError{ID: e.Event.ID, Err: err}
+			return &requestError{ID: e.Event.ID.Hex(), Err: err}
 		}
 	}
 
@@ -460,31 +460,30 @@ func (c *client) handleCount(count countRequest) *requestError {
 // ValidateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
 func (c *client) ValidateAuth(auth authRequest) *requestError {
 	if auth.Event.Kind != nostr.KindClientAuthentication {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthKind}
+		return &requestError{ID: auth.ID.Hex(), Err: ErrInvalidAuthKind}
 	}
 
 	if time.Since(auth.CreatedAt.Time()).Abs() > authTimeTolerance {
-		return &requestError{ID: auth.ID, Err: ErrInvalidTimestamp}
+		return &requestError{ID: auth.ID.Hex(), Err: ErrInvalidTimestamp}
 	}
 
 	if !strings.Contains(auth.Relay(), c.relay.domain) {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
+		return &requestError{ID: auth.ID.Hex(), Err: ErrInvalidAuthRelay}
 	}
 
 	if !auth.Event.CheckID() {
-		return &requestError{ID: auth.ID, Err: ErrInvalidEventID}
+		return &requestError{ID: auth.ID.Hex(), Err: ErrInvalidEventID}
 	}
 
-	match, err := auth.Event.CheckSignature()
-	if err != nil || !match {
-		return &requestError{ID: auth.ID, Err: ErrInvalidEventSignature}
+	if !auth.Event.VerifySignature() {
+		return &requestError{ID: auth.ID.Hex(), Err: ErrInvalidEventSignature}
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.challenge == "" || auth.Challenge() != c.challenge {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
+		return &requestError{ID: auth.ID.Hex(), Err: ErrInvalidAuthChallenge}
 	}
 	return nil
 }

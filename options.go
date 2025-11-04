@@ -9,7 +9,7 @@ import (
 	"github.com/goccy/go-json"
 
 	ws "github.com/gorilla/websocket"
-	"github.com/nbd-wtf/go-nostr/nip11"
+	"fiatjaf.com/nostr/nip11"
 )
 
 const (

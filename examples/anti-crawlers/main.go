@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/rely"
 )
 
@@ -27,7 +27,7 @@ func main() {
 }
 
 // TooMany rejects the REQ if the client has too many open filters.
-func TooMany(client rely.Client, filters nostr.Filters) error {
+func TooMany(client rely.Client, filters []nostr.Filter) error {
 	total := len(filters)
 	for _, sub := range client.Subscriptions() {
 		total += len(sub.Filters())

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/rely"
 )
 
@@ -34,7 +34,7 @@ func main() {
 	}
 }
 
-func TooGreedy(client rely.Client, filters nostr.Filters) error {
+func TooGreedy(client rely.Client, filters []nostr.Filter) error {
 	if client.RemainingCapacity() < 10 {
 		return errors.New("slow down there chief")
 	}
@@ -46,7 +46,7 @@ func Save(c rely.Client, e *nostr.Event) error {
 	return nil
 }
 
-func Query(ctx context.Context, c rely.Client, f nostr.Filters) ([]nostr.Event, error) {
+func Query(ctx context.Context, c rely.Client, f []nostr.Filter) ([]nostr.Event, error) {
 	log.Printf("received filters %v", f)
 	return nil, nil
 }

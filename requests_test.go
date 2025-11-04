@@ -11,15 +11,15 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 func TestApplyBudget(t *testing.T) {
 	tests := []struct {
 		name     string
 		budget   int
-		filters  nostr.Filters
-		expected nostr.Filters
+		filters  []nostr.Filter
+		expected []nostr.Filter
 	}{
 		{
 			name:   "empty filters",
@@ -28,56 +28,56 @@ func TestApplyBudget(t *testing.T) {
 		{
 			name:     "budget 0",
 			budget:   0,
-			filters:  nostr.Filters{{Limit: 69}, {Limit: 420}},
-			expected: nostr.Filters{{Limit: 0}, {Limit: 0}},
+			filters:  []nostr.Filter{{Limit: 69}, {Limit: 420}},
+			expected: []nostr.Filter{{Limit: 0}, {Limit: 0}},
 		},
 		{
 			name:     "limitZero",
 			budget:   100,
-			filters:  nostr.Filters{{LimitZero: true}},
-			expected: nostr.Filters{{LimitZero: true}},
+			filters:  []nostr.Filter{{LimitZero: true}},
+			expected: []nostr.Filter{{LimitZero: true}},
 		},
 		{
 			name:     "one filter, overlimit",
 			budget:   100,
-			filters:  nostr.Filters{{Limit: 1000}},
-			expected: nostr.Filters{{Limit: 100}},
+			filters:  []nostr.Filter{{Limit: 1000}},
+			expected: []nostr.Filter{{Limit: 100}},
 		},
 		{
 			name:     "one filter, unspecified",
 			budget:   100,
-			filters:  nostr.Filters{{}},
-			expected: nostr.Filters{{Limit: 100}},
+			filters:  []nostr.Filter{{}},
+			expected: []nostr.Filter{{Limit: 100}},
 		},
 		{
 			name:     "overlimit, all specified",
 			budget:   100,
-			filters:  nostr.Filters{{Limit: 1}, {Limit: 500}, {Limit: 99}},
-			expected: nostr.Filters{{Limit: 1}, {Limit: 83}, {Limit: 16}},
+			filters:  []nostr.Filter{{Limit: 1}, {Limit: 500}, {Limit: 99}},
+			expected: []nostr.Filter{{Limit: 1}, {Limit: 83}, {Limit: 16}},
 		},
 		{
 			name:     "negative limit",
 			budget:   100,
-			filters:  nostr.Filters{{Limit: -1}, {Limit: 400}},
-			expected: nostr.Filters{{Limit: 20}, {Limit: 80}},
+			filters:  []nostr.Filter{{Limit: -1}, {Limit: 400}},
+			expected: []nostr.Filter{{Limit: 20}, {Limit: 80}},
 		},
 		{
 			name:     "all underlimit",
 			budget:   100,
-			filters:  nostr.Filters{{Limit: 1}, {Limit: 1}},
-			expected: nostr.Filters{{Limit: 1}, {Limit: 1}},
+			filters:  []nostr.Filter{{Limit: 1}, {Limit: 1}},
+			expected: []nostr.Filter{{Limit: 1}, {Limit: 1}},
 		},
 		{
 			name:     "all unspecified",
 			budget:   100,
-			filters:  nostr.Filters{{}, {}, {}},
-			expected: nostr.Filters{{Limit: 33}, {Limit: 33}, {Limit: 33}},
+			filters:  []nostr.Filter{{}, {}, {}},
+			expected: []nostr.Filter{{Limit: 33}, {Limit: 33}, {Limit: 33}},
 		},
 		{
 			name:     "overlimit, all specified",
 			budget:   100,
-			filters:  nostr.Filters{{Limit: 500}, {Limit: 100}, {Limit: 0}},
-			expected: nostr.Filters{{Limit: 71}, {Limit: 14}, {Limit: 14}},
+			filters:  []nostr.Filter{{Limit: 500}, {Limit: 100}, {Limit: 0}},
+			expected: []nostr.Filter{{Limit: 71}, {Limit: 14}, {Limit: 14}},
 		},
 	}
 
@@ -219,7 +219,7 @@ func TestParseReq(t *testing.T) {
 		{
 			name:     "valid",
 			data:     []byte(`["REQ", "abcd", {"kinds": [1]}, {"kinds": [30023], "#d": ["buteko", "batuke"]}]`),
-			expected: reqRequest{id: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
+			expected: reqRequest{id: "abcd", Filters: []nostr.Filter{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
 		},
 	}
 
@@ -275,7 +275,7 @@ func TestParseCount(t *testing.T) {
 		{
 			name:     "valid",
 			data:     []byte(`["COUNT", "abcd", {"kinds": [1]}, {"kinds": [30023], "#d": ["buteko", "batuke"]}]`),
-			expected: countRequest{id: "abcd", Filters: nostr.Filters{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
+			expected: countRequest{id: "abcd", Filters: []nostr.Filter{{Kinds: []int{1}, Tags: nostr.TagMap{}}, {Kinds: []int{30023}, Tags: nostr.TagMap{"d": {"buteko", "batuke"}}}}},
 		},
 	}
 

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/rely"
 )
 
@@ -40,7 +40,7 @@ func Save(c rely.Client, e *nostr.Event) error {
 	return nil
 }
 
-func Query(ctx context.Context, c rely.Client, f nostr.Filters) ([]nostr.Event, error) {
+func Query(ctx context.Context, c rely.Client, f []nostr.Filter) ([]nostr.Event, error) {
 	logger.Info("received filters", "filters", f)
 	return nil, nil
 }

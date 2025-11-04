@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/smallset"
 )
 
@@ -22,10 +22,10 @@ func join(strs ...string) string { return strings.Join(strs, ":") }
 // The dispatcher manages a global and eventually-consistent snapshot of all clients' subscriptions.
 type dispatcher struct {
 	subscriptions map[sID]subscription
-	byID          map[string]*smallset.Ordered[sID]
-	byAuthor      map[string]*smallset.Ordered[sID]
+	byID          map[nostr.ID]*smallset.Ordered[sID]
+	byAuthor      map[nostr.PubKey]*smallset.Ordered[sID]
 	byTag         map[string]*smallset.Ordered[sID]
-	byKind        map[int]*smallset.Ordered[sID]
+	byKind        map[nostr.Kind]*smallset.Ordered[sID]
 	byTime        *timeIndex
 
 	updates   chan update
@@ -57,10 +57,10 @@ type update struct {
 func newDispatcher(relay *Relay) *dispatcher {
 	return &dispatcher{
 		subscriptions: make(map[sID]subscription, 3000),
-		byID:          make(map[string]*smallset.Ordered[sID], 3000),
-		byAuthor:      make(map[string]*smallset.Ordered[sID], 3000),
+		byID:          make(map[nostr.ID]*smallset.Ordered[sID], 3000),
+		byAuthor:      make(map[nostr.PubKey]*smallset.Ordered[sID], 3000),
 		byTag:         make(map[string]*smallset.Ordered[sID], 3000),
-		byKind:        make(map[int]*smallset.Ordered[sID], 3000),
+		byKind:        make(map[nostr.Kind]*smallset.Ordered[sID], 3000),
 		byTime:        newTimeIndex(600),
 		updates:       make(chan update, 256),
 		broadcast:     make(chan *nostr.Event, 256),
