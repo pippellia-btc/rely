@@ -13,7 +13,7 @@ import (
 	"syscall"
 
 	"github.com/gorilla/websocket"
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // Extracts the IP address from the http request.
@@ -125,7 +125,7 @@ func logEvent(c Client, e *nostr.Event) error {
 	return nil
 }
 
-func logFilters(ctx context.Context, c Client, f nostr.Filters) ([]nostr.Event, error) {
+func logFilters(ctx context.Context, c Client, f []nostr.Filter) ([]nostr.Event, error) {
 	log.Printf("received %d filters from IP %s", len(f), c.IP())
 	return nil, nil
 }

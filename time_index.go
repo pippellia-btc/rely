@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/smallset"
 )
 
@@ -80,11 +80,11 @@ func newIntervalFilter(f nostr.Filter, sid sID) intervalFilter {
 		until: end,
 		sid:   sid,
 	}
-	if f.Since != nil {
-		i.since = int64(*f.Since)
+	if f.Since != 0 {
+		i.since = int64(f.Since)
 	}
-	if f.Until != nil {
-		i.until = int64(*f.Until)
+	if f.Until != 0 {
+		i.until = int64(f.Until)
 	}
 	return i
 }

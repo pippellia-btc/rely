@@ -8,7 +8,7 @@ import (
 
 	"github.com/goccy/go-json"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 const (
@@ -141,41 +141,41 @@ func RandomEvents() []nostr.Event {
 func RandomEvent() nostr.Event {
 	event := nostr.Event{
 		CreatedAt: nostr.Timestamp(rg.Int64()),
-		Kind:      rg.Int(),
+		Kind:      nostr.Kind(rg.Int()),
 		Tags:      RandomSlice(randomTag),
 		Content:   RandomString(),
 	}
 
-	sk := nostr.GeneratePrivateKey()
+	sk := nostr.Generate()
 	if err := event.Sign(sk); err != nil {
 		panic(fmt.Errorf("failed to sign event: %w", err))
 	}
 	return event
 }
 
-func RandomFilters() nostr.Filters {
+func RandomFilters() []nostr.Filter {
 	return RandomSlice(RandomFilter)
 }
 
 func RandomFilter() nostr.Filter {
 	f := nostr.Filter{}
 	if rg.Float32() < 0.2 {
-		f.IDs = RandomSlice(RandomString)
+		f.IDs = RandomSlice(RandomID)
 	}
 	if rg.Float32() < 0.2 {
-		f.Kinds = RandomSlice(rg.Int)
+		f.Kinds = RandomSlice(RandomKind)
 	}
 	if rg.Float32() < 0.2 {
-		f.Authors = RandomSlice(RandomString)
+		f.Authors = RandomSlice(RandomPubKey)
 	}
 	if rg.Float32() < 0.2 {
 		f.Tags = RandomTagMap()
 	}
 	if rg.Float32() < 0.2 {
-		f.Since = RandomTimestamp()
+		f.Since = *RandomTimestamp()
 	}
 	if rg.Float32() < 0.2 {
-		f.Until = RandomTimestamp()
+		f.Until = *RandomTimestamp()
 	}
 	if rg.Float32() < 0.2 {
 		f.Limit = rg.Int()
@@ -230,6 +230,26 @@ func RandomString() string {
 		s[i] = symbols[rg.IntN(len(symbols))]
 	}
 	return string(s)
+}
+
+func RandomID() nostr.ID {
+	var id nostr.ID
+	for i := range id {
+		id[i] = byte(rg.IntN(256))
+	}
+	return id
+}
+
+func RandomPubKey() nostr.PubKey {
+	var pk nostr.PubKey
+	for i := range pk {
+		pk[i] = byte(rg.IntN(256))
+	}
+	return pk
+}
+
+func RandomKind() nostr.Kind {
+	return nostr.Kind(rg.Int())
 }
 
 func RandomTimestamp() *nostr.Timestamp {

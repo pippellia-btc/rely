@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/rely/tests"
 	"github.com/pippellia-btc/slicex"
 	"github.com/pippellia-btc/smallset"
@@ -33,7 +33,7 @@ func TestIndex(t *testing.T) {
 	d := newDispatcher(&Relay{})
 	sub := subscription{
 		uid:     "0:test",
-		filters: nostr.Filters{{IDs: []string{"xxx"}}},
+		filters: []nostr.Filter{{IDs: []nostr.ID{nostr.MustIDFromHex("xxx"}}},
 		client:  &client{uid: "0"},
 	}
 
@@ -56,7 +56,7 @@ func TestUnindex(t *testing.T) {
 	sID := sID("0:test")
 	sub := subscription{
 		uid:     string(sID),
-		filters: nostr.Filters{{IDs: []string{"abc"}}},
+		filters: []nostr.Filter{{IDs: []nostr.ID{nostr.MustIDFromHex("abc"}}},
 		client:  &client{uid: "0"},
 	}
 

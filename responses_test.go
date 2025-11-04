@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/goccy/go-json"
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 func TestMarshalEventResponse(t *testing.T) {

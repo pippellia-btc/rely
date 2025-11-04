@@ -7,7 +7,7 @@ import (
 
 	"github.com/goccy/go-json"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 var (
@@ -41,8 +41,8 @@ type eventRequest struct {
 	Event  *nostr.Event
 }
 
-func (e eventRequest) UID() string     { return join(e.client.uid, e.Event.ID) }
-func (e eventRequest) ID() string      { return e.Event.ID }
+func (e eventRequest) UID() string     { return join(e.client.uid, e.Event.ID.Hex()) }
+func (e eventRequest) ID() string      { return e.Event.ID.Hex() }
 func (e eventRequest) IsExpired() bool { return e.client.isUnregistering.Load() }
 
 type reqRequest struct {
@@ -50,7 +50,7 @@ type reqRequest struct {
 	ctx context.Context // will be cancelled when the subscription is closed
 
 	client  *client
-	Filters nostr.Filters
+	Filters []nostr.Filter
 }
 
 func (r reqRequest) UID() string     { return join(r.client.uid, r.id) }
@@ -59,7 +59,7 @@ func (r reqRequest) IsExpired() bool { return r.ctx.Err() != nil || r.client.isU
 
 type countRequest struct {
 	id      string
-	Filters nostr.Filters
+	Filters []nostr.Filter
 	client  *client
 }
 
@@ -205,8 +205,8 @@ func parseClose(d *json.Decoder) (closeRequest, *requestError) {
 	return close, nil
 }
 
-func parseFilters(d *json.Decoder) (nostr.Filters, error) {
-	filters := make(nostr.Filters, 0, 3)
+func parseFilters(d *json.Decoder) ([]nostr.Filter, error) {
+	filters := make([]nostr.Filter, 0, 3)
 	filter := nostr.Filter{}
 
 	for d.More() {

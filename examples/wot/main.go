@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/rely"
 	. "github.com/pippellia-btc/rely"
 )

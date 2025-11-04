@@ -5,7 +5,7 @@ import (
 	"errors"
 	"math/rand/v2"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 	"github.com/pippellia-btc/rely"
 	. "github.com/pippellia-btc/rely"
 )

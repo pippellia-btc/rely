@@ -2,11 +2,10 @@ package rely
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/nbd-wtf/go-nostr"
+	"fiatjaf.com/nostr"
 )
 
 // Hooks provides a complete set of extension points allowing custom logic
@@ -53,11 +52,11 @@ type RejectHooks struct {
 
 	// Req is invoked before processing a REQ message.
 	// Returning a non-nil error rejects the request.
-	Req []func(Client, nostr.Filters) error
+	Req []func(Client, []nostr.Filter) error
 
 	// Count is invoked before processing a NIP-45 COUNT request.
 	// Returning a non-nil error rejects the request.
-	Count []func(Client, nostr.Filters) error
+	Count []func(Client, []nostr.Filter) error
 }
 
 func DefaultRejectHooks() RejectHooks {
@@ -107,11 +106,11 @@ type OnHooks struct {
 	// Req defines how the relay processes a REQ containing one or more filters,
 	// for example by querying the database for matching events.
 	// The provided context is canceled if the client sends the corresponding CLOSE message.
-	Req func(context.Context, Client, nostr.Filters) ([]nostr.Event, error)
+	Req func(context.Context, Client, []nostr.Filter) ([]nostr.Event, error)
 
 	// Count defines how the relay processes NIP-45 COUNT requests.
 	// This hook is optional (= nil). If unset, COUNT requests are rejected with [ErrUnsupportedNIP45].
-	Count func(Client, nostr.Filters) (count int64, approx bool, err error)
+	Count func(Client, []nostr.Filter) (count int64, approx bool, err error)
 }
 
 func DefaultOnHooks() OnHooks {
@@ -152,12 +151,7 @@ func InvalidID(c Client, e *nostr.Event) error {
 
 // InvalidSignature returns an error if the event's signature is invalid.
 func InvalidSignature(c Client, e *nostr.Event) error {
-	match, err := e.CheckSignature()
-	if err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidEventSignature, err.Error())
-	}
-
-	if !match {
+	if !e.VerifySignature() {
 		return ErrInvalidEventSignature
 	}
 	return nil
