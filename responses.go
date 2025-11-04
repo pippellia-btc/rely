@@ -3,7 +3,6 @@ package rely
 import (
 	"bytes"
 	"fmt"
-	"strconv"
 
 	"github.com/goccy/go-json"
 
@@ -27,7 +26,7 @@ type okResponse struct {
 }
 
 func (o okResponse) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]string{"OK", o.ID, strconv.FormatBool(o.Saved), o.Reason})
+	return json.Marshal([]any{"OK", o.ID, o.Saved, o.Reason})
 }
 
 type closedResponse struct {
