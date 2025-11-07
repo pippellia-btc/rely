@@ -1,0 +1,80 @@
+-- Batch Refresh Procedure for Hot Posts
+-- This migration documents the refresh strategy for the hot_posts table
+--
+-- The hot_posts table is NOT populated by materialized views (too slow)
+-- Instead, it's refreshed periodically by the application layer
+--
+-- See: analytics.go:RefreshHotPosts() for the implementation
+
+-- =============================================================================
+-- REFRESH STRATEGY
+-- =============================================================================
+--
+-- The RefreshHotPosts() function should be called periodically:
+-- - Every 15 minutes for high-traffic relays (100+ events/sec)
+-- - Every 30-60 minutes for medium-traffic relays (10-100 events/sec)
+-- - Every 2-4 hours for low-traffic relays (<10 events/sec)
+--
+-- The function:
+-- 1. Deletes old hot_posts entries (>48 hours old)
+-- 2. Calculates engagement metrics from event_engagement table
+-- 3. Computes time-decay adjusted hot_score
+-- 4. Inserts/updates hot_posts table
+--
+-- =============================================================================
+
+-- Example refresh query (for reference - actual implementation is in analytics.go)
+--
+-- Step 1: Clean up old entries
+-- ALTER TABLE nostr.hot_posts
+-- DELETE WHERE hour_bucket < toStartOfHour(now() - INTERVAL 48 HOUR);
+--
+-- Step 2: Insert/update hot posts from last 48 hours
+-- INSERT INTO nostr.hot_posts
+-- SELECT
+--     e.id as event_id,
+--     e.pubkey as author_pubkey,
+--     e.created_at,
+--     e.kind,
+--     coalesce(sum(eng.reply_count), 0) as reply_count,
+--     coalesce(sum(eng.reaction_count), 0) as reaction_count,
+--     coalesce(sum(eng.repost_count), 0) as repost_count,
+--     coalesce(sum(eng.zap_count), 0) as zap_count,
+--     coalesce(sum(eng.zap_total_sats), 0) as zap_total_sats,
+--     (reply_count * 3 + repost_count * 2 + reaction_count * 1 + zap_count * 5) as engagement_score,
+--     engagement_score * exp(-0.693 * (toFloat64(now()) - toFloat64(e.created_at)) / 86400.0) as hot_score,
+--     toStartOfHour(toDateTime(e.created_at)) as hour_bucket,
+--     toUInt32(now()) as last_updated
+-- FROM nostr.events e
+-- LEFT JOIN nostr.event_engagement eng ON e.id = eng.event_id
+-- WHERE e.kind = 1
+--   AND e.created_at >= toUInt32(now() - 48*3600)
+--   AND e.deleted = 0
+-- GROUP BY e.id, e.pubkey, e.created_at, e.kind;
+
+-- =============================================================================
+-- DEPLOYMENT OPTIONS
+-- =============================================================================
+--
+-- Option 1: Application-level ticker (recommended)
+-- - Add a goroutine in main.go that calls RefreshHotPosts() periodically
+-- - Example:
+--   ticker := time.NewTicker(30 * time.Minute)
+--   go func() {
+--       for range ticker.C {
+--           analytics.RefreshHotPosts(context.Background(), 48)
+--       }
+--   }()
+--
+-- Option 2: Cron job
+-- - Create a CLI command that calls RefreshHotPosts()
+-- - Schedule with crontab: */30 * * * * /path/to/relay refresh-hot-posts
+--
+-- Option 3: ClickHouse scheduled job (requires ClickHouse 23.4+)
+-- - Use CREATE SCHEDULED JOB syntax (experimental feature)
+-- - Not recommended for production yet
+--
+-- =============================================================================
+
+-- This migration file is documentation-only (no actual SQL to execute)
+-- The refresh logic is implemented in Go (analytics.go)

@@ -1,0 +1,40 @@
+# ClickHouse Nostr Relay Configuration Example
+
+[relay]
+# Address to listen on
+listen = "0.0.0.0:3334"
+
+# Domain name (required for NIP-42 authentication)
+domain = "relay.example.com"
+
+# Maximum number of concurrent processors
+max_processors = 8
+
+# Queue capacity for incoming requests
+queue_capacity = 2048
+
+# Per-client response buffer size
+client_response_limit = 500
+
+[clickhouse]
+# ClickHouse connection string
+# Format: clickhouse://[user[:password]@][host][:port]/[database][?param1=value1&...]
+dsn = "clickhouse://localhost:9000/nostr"
+
+# Alternative with authentication:
+# dsn = "clickhouse://default:password@localhost:9000/nostr?secure=true"
+
+# Batch insertion settings
+batch_size = 1000
+flush_interval = "1s"
+
+# Connection pool settings
+max_open_conns = 10
+max_idle_conns = 5
+
+[logging]
+# Enable verbose logging
+verbose = false
+
+# Log file path (empty = stdout)
+log_file = ""
