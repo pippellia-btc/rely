@@ -36,6 +36,7 @@ type ActiveUsersReport struct {
 
 // GetActiveUsers returns active user statistics for a time period
 // Uses pre-aggregated tables for fast results (sub-second query)
+// FIXED: Properly aggregates SummingMergeTree follower_counts
 func (a *AnalyticsService) GetActiveUsers(ctx context.Context, startDate, endDate time.Time, minFollowers int) (*ActiveUsersReport, error) {
 	query := `
 		WITH active_pubkeys AS (
@@ -45,12 +46,17 @@ func (a *AnalyticsService) GetActiveUsers(ctx context.Context, startDate, endDat
 			  AND created_at < toUInt32(?)
 			  AND deleted = 0
 		),
+		follower_agg AS (
+			SELECT pubkey, sum(follower_count) as followers
+			FROM nostr.follower_counts
+			GROUP BY pubkey
+		),
 		qualified_users AS (
 			SELECT a.pubkey
 			FROM active_pubkeys a
-			LEFT JOIN nostr.follower_counts f ON a.pubkey = f.pubkey
+			LEFT JOIN follower_agg f ON a.pubkey = f.pubkey
 			LEFT JOIN nostr.user_profiles p ON a.pubkey = p.pubkey
-			WHERE f.follower_count >= ? OR f.follower_count IS NULL
+			WHERE f.followers >= ? OR f.followers IS NULL
 		)
 		SELECT
 			uniq(q.pubkey) as total_active,
@@ -360,22 +366,25 @@ type EngagedEvent struct {
 
 // GetTopEngagedEvents returns most engaged events
 // OPTIMIZED: Uses event_engagement aggregated table
+// FIXED: JOINs with events table to get metadata (author, created_at, kind)
 func (a *AnalyticsService) GetTopEngagedEvents(ctx context.Context, hours int, limit int) ([]EngagedEvent, error) {
 	query := `
 		SELECT
-			event_id,
-			author_pubkey,
-			created_at,
-			kind,
-			sum(reply_count) as replies,
-			sum(reaction_count) as reactions,
-			sum(repost_count) as reposts,
-			sum(zap_count) as zaps,
+			eng.event_id,
+			e.pubkey as author_pubkey,
+			e.created_at,
+			e.kind,
+			sum(eng.reply_count) as replies,
+			sum(eng.reaction_count) as reactions,
+			sum(eng.repost_count) as reposts,
+			sum(eng.zap_count) as zaps,
 			-- Weighted score: replies=3, reposts=2, reactions=1, zaps=5
-			sum(reply_count * 3 + repost_count * 2 + reaction_count * 1 + zap_count * 5) as score
-		FROM nostr.event_engagement
-		WHERE created_at >= toUInt32(now() - ?)
-		GROUP BY event_id, author_pubkey, created_at, kind
+			sum(eng.reply_count * 3 + eng.repost_count * 2 + eng.reaction_count * 1 + eng.zap_count * 5) as score
+		FROM nostr.event_engagement eng
+		JOIN nostr.events e ON eng.event_id = e.id
+		WHERE e.created_at >= toUInt32(now() - ?)
+		  AND e.deleted = 0
+		GROUP BY eng.event_id, e.pubkey, e.created_at, e.kind
 		ORDER BY score DESC
 		LIMIT ?
 	`
@@ -639,6 +648,7 @@ func (a *AnalyticsService) GetTrendingPosts(ctx context.Context, hours int, minS
 
 // RefreshHotScores updates time-decay adjusted hot scores
 // Should be run periodically (every hour) to keep trending posts accurate
+// DEPRECATED: Use RefreshHotPosts() instead for full rebuild
 func (a *AnalyticsService) RefreshHotScores(ctx context.Context, daysBack int) error {
 	query := `
 		ALTER TABLE nostr.hot_posts
@@ -652,6 +662,52 @@ func (a *AnalyticsService) RefreshHotScores(ctx context.Context, daysBack int) e
 	_, err := a.db.ExecContext(ctx, query, daysBack)
 	if err != nil {
 		return fmt.Errorf("failed to refresh hot scores: %w", err)
+	}
+
+	return nil
+}
+
+// RefreshHotPosts completely rebuilds the hot_posts table from event_engagement
+// This should be called periodically (every 15-60 minutes depending on traffic)
+// FIXED: Replaces the broken materialized view approach
+func (a *AnalyticsService) RefreshHotPosts(ctx context.Context, hoursBack int) error {
+	// Step 1: Clean up old entries (older than hoursBack)
+	deleteQuery := `
+		ALTER TABLE nostr.hot_posts
+		DELETE WHERE hour_bucket < toStartOfHour(now() - INTERVAL ? HOUR)
+	`
+	_, err := a.db.ExecContext(ctx, deleteQuery, hoursBack)
+	if err != nil {
+		return fmt.Errorf("failed to clean old hot_posts: %w", err)
+	}
+
+	// Step 2: Insert/update hot posts from last N hours
+	insertQuery := `
+		INSERT INTO nostr.hot_posts
+		SELECT
+			e.id as event_id,
+			e.pubkey as author_pubkey,
+			e.created_at,
+			e.kind,
+			coalesce(sum(eng.reply_count), 0) as reply_count,
+			coalesce(sum(eng.reaction_count), 0) as reaction_count,
+			coalesce(sum(eng.repost_count), 0) as repost_count,
+			coalesce(sum(eng.zap_count), 0) as zap_count,
+			coalesce(sum(eng.zap_total_sats), 0) as zap_total_sats,
+			(reply_count * 3 + repost_count * 2 + reaction_count * 1 + zap_count * 5) as engagement_score,
+			engagement_score * exp(-0.693 * (toFloat64(now()) - toFloat64(e.created_at)) / 86400.0) as hot_score,
+			toStartOfHour(toDateTime(e.created_at)) as hour_bucket,
+			toUInt32(now()) as last_updated
+		FROM nostr.events e
+		LEFT JOIN nostr.event_engagement eng ON e.id = eng.event_id
+		WHERE e.kind = 1
+		  AND e.created_at >= toUInt32(now() - ? * 3600)
+		  AND e.deleted = 0
+		GROUP BY e.id, e.pubkey, e.created_at, e.kind
+	`
+	_, err = a.db.ExecContext(ctx, insertQuery, hoursBack)
+	if err != nil {
+		return fmt.Errorf("failed to refresh hot_posts: %w", err)
 	}
 
 	return nil

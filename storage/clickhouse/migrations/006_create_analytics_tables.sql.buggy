@@ -1,6 +1,5 @@
--- FIXED v2: Advanced Analytics Schema for Nostr Archival Relay
+-- Advanced Analytics Schema for Nostr Archival Relay
 -- Optimized for OLAP queries, reports, and time-series analysis
--- All materialized view bugs from v1 have been addressed
 
 -- =============================================================================
 -- USER PROFILE ANALYTICS
@@ -97,29 +96,25 @@ ENGINE = SummingMergeTree()
 ORDER BY pubkey
 SETTINGS index_granularity = 8192;
 
--- FIXED v2: Materialized view to maintain follower counts
--- Must read from nostr.events directly, not from follow_graph!
+-- Materialized view to maintain follower counts
 CREATE MATERIALIZED VIEW IF NOT EXISTS nostr.follower_counts_mv TO nostr.follower_counts
-AS
--- Count followers (someone follows this pubkey)
-SELECT
-    arrayJoin(tag_p) as pubkey,
-    1 as follower_count,
+AS SELECT
+    following_pubkey as pubkey,
+    count() as follower_count,
     0 as following_count,
-    created_at as last_updated
-FROM nostr.events
-WHERE kind = 3 AND length(tag_p) > 0 AND deleted = 0
+    max(created_at) as last_updated
+FROM nostr.follow_graph
+GROUP BY following_pubkey
 
 UNION ALL
 
--- Count following (this pubkey follows others)
 SELECT
-    pubkey,
+    follower_pubkey as pubkey,
     0 as follower_count,
-    length(tag_p) as following_count,
-    created_at as last_updated
-FROM nostr.events
-WHERE kind = 3 AND length(tag_p) > 0 AND deleted = 0;
+    count() as following_count,
+    max(created_at) as last_updated
+FROM nostr.follow_graph
+GROUP BY follower_pubkey;
 
 -- =============================================================================
 -- TIME-SERIES ANALYTICS (Hourly/Daily/Weekly/Monthly)
@@ -196,12 +191,13 @@ GROUP BY date;
 -- ENGAGEMENT METRICS
 -- =============================================================================
 
--- FIXED v2: Simplified event engagement tracking (minimal, for JOINs)
--- This table only stores engagement counts by event_id
--- To get event metadata (author, created_at, kind), JOIN with nostr.events
+-- Per-event engagement tracking
 CREATE TABLE IF NOT EXISTS nostr.event_engagement
 (
-    event_id        FixedString(64),  -- The event being engaged with
+    event_id        FixedString(64),
+    author_pubkey   FixedString(64),
+    created_at      UInt32,
+    kind            UInt16,
 
     -- Engagement metrics
     reply_count     UInt32,
@@ -213,24 +209,25 @@ CREATE TABLE IF NOT EXISTS nostr.event_engagement
     last_updated    UInt32
 )
 ENGINE = SummingMergeTree()
-ORDER BY event_id
+ORDER BY (author_pubkey, created_at, event_id)
 SETTINGS index_granularity = 8192;
 
--- FIXED v2: Track engagement to events (replies, reactions, reposts, zaps)
--- This tracks when someone engages WITH an event, not when they CREATE an event
--- IMPORTANT: Only tracks event_id, use JOIN with nostr.events to get metadata
-CREATE MATERIALIZED VIEW IF NOT EXISTS nostr.event_engagement_mv TO nostr.event_engagement
+-- Track replies to events
+CREATE MATERIALIZED VIEW IF NOT EXISTS nostr.event_replies_mv TO nostr.event_engagement
 AS SELECT
     arrayJoin(tag_e) as event_id,
+    '' as author_pubkey,  -- Will be filled by periodic job
+    0 as created_at,
+    kind,
     countIf(kind = 1) as reply_count,
     countIf(kind = 7) as reaction_count,
     countIf(kind = 6) as repost_count,
     countIf(kind = 9735) as zap_count,
-    sumIf(toUInt64OrZero(JSONExtractString(content, 'amount')) / 1000, kind = 9735) as zap_total_sats,
-    toUInt32(now()) as last_updated
+    0 as zap_total_sats,
+    max(toUInt32(now())) as last_updated
 FROM nostr.events
 WHERE length(tag_e) > 0 AND deleted = 0 AND kind IN (1, 6, 7, 9735)
-GROUP BY event_id;
+GROUP BY event_id, kind;
 
 -- =============================================================================
 -- CONTENT ANALYTICS
