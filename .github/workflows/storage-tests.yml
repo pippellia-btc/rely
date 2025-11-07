@@ -1,0 +1,141 @@
+name: Storage Tests
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'storage/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/storage-tests.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'storage/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/storage-tests.yml'
+
+jobs:
+  test:
+    name: Storage Tests
+    runs-on: ubuntu-latest
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.1
+        ports:
+          - 9000:9000
+          - 8123:8123
+        env:
+          CLICKHOUSE_DB: nostr
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: ""
+        options: >-
+          --health-cmd "clickhouse-client --query 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Verify ClickHouse is ready
+        run: |
+          timeout 60 bash -c 'until curl -f http://localhost:8123/ping 2>/dev/null; do sleep 2; done'
+          echo "ClickHouse is ready"
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run unit tests
+        run: go test -v -short -timeout 5m ./storage/clickhouse/...
+        env:
+          CLICKHOUSE_DSN: "clickhouse://localhost:9000/nostr"
+
+      - name: Run integration tests
+        run: go test -v -timeout 10m ./storage/clickhouse/... -run "TestInsert.*|TestQuery.*|TestCount.*|TestConcurrent.*|TestDeduplic.*"
+        env:
+          CLICKHOUSE_DSN: "clickhouse://localhost:9000/nostr"
+
+      - name: Run analytics tests
+        run: go test -v -timeout 10m ./storage/clickhouse/... -run "TestAnalytics.*|TestGet.*|TestRefresh.*"
+        env:
+          CLICKHOUSE_DSN: "clickhouse://localhost:9000/nostr"
+
+      - name: Generate coverage
+        run: |
+          go test -coverprofile=coverage.out -covermode=atomic -timeout 10m ./storage/clickhouse/...
+          go tool cover -func=coverage.out -o=coverage.txt
+        env:
+          CLICKHOUSE_DSN: "clickhouse://localhost:9000/nostr"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.out
+          flags: storage
+          name: storage-coverage
+          fail_ci_if_error: false
+
+      - name: Comment coverage on PR
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "## Test Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat coverage.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  functional-test:
+    name: Functional Tests (with real relay)
+    runs-on: ubuntu-latest
+    # Run functional tests separately as they require internet access
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.1
+        ports:
+          - 9000:9000
+          - 8123:8123
+        env:
+          CLICKHOUSE_DB: nostr
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: ""
+        options: >-
+          --health-cmd "clickhouse-client --query 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run functional tests
+        run: go test -v -timeout 15m ./storage/clickhouse/... -run "TestFunctional.*"
+        env:
+          CLICKHOUSE_DSN: "clickhouse://localhost:9000/nostr"
+        continue-on-error: true  # Don't fail if relay is down
+
+      - name: Functional test summary
+        if: always()
+        run: |
+          echo "## Functional Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "Functional tests attempt to connect to relay.nostr.net" >> $GITHUB_STEP_SUMMARY
+          echo "These tests may fail if the relay is down or slow" >> $GITHUB_STEP_SUMMARY

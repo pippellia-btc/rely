@@ -1,0 +1,190 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                   RELY CODEBASE TEST COVERAGE ANALYSIS                      ║
+║                  Storage Layer & Integration Test Status                    ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+CORE FRAMEWORK (TESTED - 18 Tests + 13 Benchmarks)
+═══════════════════════════════════════════════════════════════════════════════
+✓ Dispatcher (subscription management)          [6 tests + 3 benchmarks]
+  └─ Index/Unindex/Candidates operations
+✓ Request Parsing (all message types)            [9 tests + 2 benchmarks]
+  └─ EVENT, REQ, COUNT, CLOSE, AUTH messages
+✓ Response Marshaling (JSON serialization)       [2 tests + 3 benchmarks]
+  └─ Event responses, raw responses
+✓ Time-Based Indexing (temporal filters)         [2 tests + 3 benchmarks]
+  └─ Time interval management
+✓ Stress Testing (integration load test)         [1 test + 0 benchmarks]
+  └─ 500-second chaos test, real WebSocket connections
+
+
+STORAGE LAYER (⚠️ CRITICAL GAP - 0 Tests)
+═══════════════════════════════════════════════════════════════════════════════
+
+storage/clickhouse/storage.go (199 lines)
+❌ No tests for:
+   ├─ Storage initialization
+   ├─ Connection pooling
+   ├─ Ping/health checks
+   ├─ Statistics retrieval
+   └─ Lifecycle (Close)
+
+storage/clickhouse/insert.go (184 lines)
+❌ No tests for:
+   ├─ Single event insertion
+   ├─ Batch insertion (50-200K events/sec)
+   ├─ Channel behavior & backpressure
+   ├─ Flush timing (interval-based)
+   ├─ Batch size thresholds
+   └─ Error handling & recovery
+
+storage/clickhouse/insert_optimized.go (201 lines)
+❌ No tests for:
+   ├─ Native driver batch operations
+   ├─ Performance vs standard insertion
+   └─ Connection pooling efficiency
+
+storage/clickhouse/query.go (250 lines)
+❌ No tests for:
+   ├─ Query building with all filter types
+   ├─ ID filtering
+   ├─ Author filtering
+   ├─ Kind filtering
+   ├─ Tag filtering (e, p, a, t, d, g, r)
+   ├─ Time range filtering
+   ├─ Full-text search
+   ├─ Event deduplication
+   ├─ Result limit enforcement
+   ├─ Table selection by filter type
+   └─ Edge cases (empty results, limits exceeded)
+
+storage/clickhouse/count.go (162 lines)
+❌ No tests for:
+   ├─ COUNT queries with all filter types
+   ├─ Exact vs approximate counting
+   ├─ Performance on large result sets
+   └─ Filter combination behavior
+
+storage/clickhouse/analytics.go (751 lines)
+❌ No tests for (10+ analytics functions):
+   ├─ GetActiveUsers() - user analytics
+   ├─ GetDailyActiveUsers() - time-series data
+   ├─ TopUsersByFollowers() - social metrics
+   ├─ GetEventKindStats() - by-kind statistics
+   ├─ GetTrendingHashtags() - trending analysis
+   ├─ GetTopEngagedEvents() - engagement metrics
+   ├─ GetGrowthMetrics() - growth calculations
+   ├─ GetContentSizeDistribution() - content analysis
+   ├─ GetTrendingPosts() - hot algorithm
+   ├─ RefreshHotPosts() - cache invalidation
+   └─ SampleEvents() - sampling functionality
+
+
+DATABASE & SCHEMA (⚠️ NO MIGRATION TESTS)
+═══════════════════════════════════════════════════════════════════════════════
+❌ No tests for:
+   ├─ Schema creation
+   ├─ Table creation (events, materialized views)
+   ├─ Index creation and performance
+   ├─ Partition creation by month
+   ├─ Migration versioning
+   ├─ Schema validation
+   ├─ Backward compatibility
+   └─ Hot posts table refresh procedure
+
+
+INTEGRATION TESTS (⚠️ CRITICAL GAP - 0 Tests)
+═══════════════════════════════════════════════════════════════════════════════
+❌ No tests for:
+   ├─ Full event lifecycle: insert → query → count
+   ├─ Concurrent insert operations
+   ├─ Connection pool behavior under load
+   ├─ Error handling and recovery
+   ├─ Data persistence across sessions
+   ├─ Multi-filter queries
+   ├─ Tag deduplication in results
+   ├─ Batch flush timing behavior
+   ├─ Analytics on real data
+   ├─ Schema migrations in test environment
+   ├─ ClickHouse container lifecycle
+   └─ End-to-end relay → storage flows
+
+
+TEST INFRASTRUCTURE AVAILABLE
+═══════════════════════════════════════════════════════════════════════════════
+✓ tests/utils.go (263 lines)
+  ├─ Random event generation (valid, signed)
+  ├─ Random filter generation
+  ├─ Random tag, timestamp, string generation
+  ├─ Template-based fuzzing
+  ├─ Reproducible random seed (PCG)
+  └─ Pre-configured probability distributions
+
+
+COVERAGE SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+Framework Tests:           ████████░░  18/18 tests ✓
+Storage Tests:             ░░░░░░░░░░   0/?  tests ❌
+Analytics Tests:           ░░░░░░░░░░   0/11 tests ❌
+Integration Tests:         ░░░░░░░░░░   0/?  tests ❌
+Overall Storage Coverage:  CRITICAL GAPS IDENTIFIED
+
+
+KEY STATISTICS
+═══════════════════════════════════════════════════════════════════════════════
+• Total Test Files:        5 files
+• Unit Tests:              18 tests (framework only)
+• Benchmark Tests:         13 benchmarks
+• Lines of Storage Code:   ~1,800 lines (untested!)
+• Lines of Test Code:      ~1,500 lines (framework only)
+• Storage Tests:           0 (0% coverage)
+• Critical Functions:      ~20+ untested storage functions
+• Blocker Tests:           5 critical functional areas
+
+
+PRIORITY FIXES NEEDED
+═══════════════════════════════════════════════════════════════════════════════
+
+🔴 CRITICAL (Functional Correctness - P0):
+   1. Event insertion (single & batch)
+   2. Event querying with filters
+   3. Tag extraction & filtering
+   4. Event deduplication
+   5. COUNT queries
+
+🟠 HIGH (Reliability - P1):
+   6. Concurrent operations
+   7. Connection pool management
+   8. Error handling & recovery
+   9. Batch flush timing
+   10. Query building edge cases
+
+🟡 MEDIUM (Performance - P2):
+    11. Insertion throughput benchmarks
+    12. Query latency benchmarks
+    13. Tag extraction optimization validation
+    14. Memory allocation patterns
+
+🟢 LOW (Advanced Features - P3):
+    15. Analytics queries
+    16. Hot/trending posts
+    17. Migration verification
+    18. Schema compatibility
+
+
+BLOCKERS FOR PRODUCTION
+═══════════════════════════════════════════════════════════════════════════════
+
+❌ No way to verify:
+   • Events are correctly inserted into database
+   • Queries return correct results
+   • Batch processing works as intended
+   • Connection pooling is stable
+   • Deduplication logic is correct
+   • Tag filtering is accurate
+   • Analytics are computed correctly
+
+⚠️ Risk Level: CRITICAL
+   Storage is the core of a relay system. Without tests, production
+   reliability cannot be assured.
+
