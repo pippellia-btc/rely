@@ -40,11 +40,12 @@ func (s *Storage) queryFilter(ctx context.Context, filter nostr.Filter) ([]nostr
 }
 
 // buildQuery constructs an optimized query based on the filter
+// OPTIMIZED: Uses strings.Builder to avoid string concatenation overhead
 func (s *Storage) buildQuery(filter nostr.Filter) (string, string, []interface{}) {
 	var table string
 	var args []interface{}
 
-	// Choose optimal table based on filter characteristics
+	// Choose optimal table based on filter characteristics (PRIMARY KEY routing)
 	switch {
 	case len(filter.IDs) > 0:
 		table = "nostr.events"
@@ -63,12 +64,14 @@ func (s *Storage) buildQuery(filter nostr.Filter) (string, string, []interface{}
 		}
 	}
 
+	// Use strings.Builder for efficient string construction
+	var b strings.Builder
+	b.Grow(512) // Pre-allocate typical query size
+
 	// Build SELECT clause
-	query := fmt.Sprintf(`
-		SELECT
-			id, pubkey, created_at, kind, content, sig, tags
-		FROM %s FINAL
-	`, table)
+	b.WriteString("SELECT id, pubkey, created_at, kind, content, sig, tags FROM ")
+	b.WriteString(table)
+	b.WriteString(" FINAL")
 
 	// Build WHERE conditions
 	var conditions []string
@@ -173,21 +176,22 @@ func (s *Storage) buildQuery(filter nostr.Filter) (string, string, []interface{}
 		args = append(args, filter.Search)
 	}
 
-	// Add WHERE clause
+	// Add WHERE clause using Builder
 	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
+		b.WriteString(" WHERE ")
+		b.WriteString(strings.Join(conditions, " AND "))
 	}
 
 	// ORDER BY and LIMIT
-	query += " ORDER BY created_at DESC"
+	b.WriteString(" ORDER BY created_at DESC LIMIT ")
 
 	limit := filter.Limit
 	if limit == 0 || limit > 5000 {
 		limit = 5000 // Default/max limit
 	}
-	query += fmt.Sprintf(" LIMIT %d", limit)
+	b.WriteString(fmt.Sprintf("%d", limit))
 
-	return table, query, args
+	return table, b.String(), args
 }
 
 // scanEvent scans a row into a nostr.Event
@@ -224,17 +228,19 @@ func scanEvent(rows *sql.Rows) (nostr.Event, error) {
 }
 
 // deduplicateEvents removes duplicate events by ID (keeps first occurrence)
+// OPTIMIZED: Uses map[string]struct{} instead of map[string]bool
+// This saves 1 byte per entry and is faster for membership testing
 func deduplicateEvents(events []nostr.Event) []nostr.Event {
 	if len(events) <= 1 {
 		return events
 	}
 
-	seen := make(map[string]bool, len(events))
+	seen := make(map[string]struct{}, len(events))
 	result := make([]nostr.Event, 0, len(events))
 
 	for _, event := range events {
-		if !seen[event.ID] {
-			seen[event.ID] = true
+		if _, exists := seen[event.ID]; !exists {
+			seen[event.ID] = struct{}{} // Zero-byte value
 			result = append(result, event)
 		}
 	}
