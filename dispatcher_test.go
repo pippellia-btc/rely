@@ -134,11 +134,6 @@ func TestJoin(t *testing.T) {
 	}
 }
 
-func timestamp(unix int64) *nostr.Timestamp {
-	ts := nostr.Timestamp(unix)
-	return &ts
-}
-
 func BenchmarkIndex(b *testing.B) {
 	d := newDispatcher(&Relay{})
 	b.ResetTimer()
