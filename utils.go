@@ -43,14 +43,33 @@ func ApplyBudget(budget int, filters ...nostr.Filter) {
 		panic("rely.ApplyBudget: budget should not be negative")
 	}
 
-	var used int
+	if len(filters) == 0 {
+		return
+	}
+
+	if budget < len(filters) {
+		// give 1 to as many filters as possible, set the rest to zero
+		for i := range filters {
+			if i < budget {
+				filters[i].Limit = 1
+			} else {
+				filters[i].Limit = 0
+				filters[i].LimitZero = true
+			}
+		}
+		return
+	}
+
+	used := 0
 	for i := range filters {
 		if filters[i].LimitZero {
-			filters[i].Limit = 0 // ensure consistency
+			// ensure consistency
+			filters[i].Limit = 0
 		}
 
 		if !filters[i].LimitZero && filters[i].Limit < 1 {
-			filters[i].Limit = budget // limit is unspecified (or negative), so we set it equal to the budget
+			// limit is unspecified (or negative), so we set it equal to the budget
+			filters[i].Limit = budget
 		}
 
 		used += filters[i].Limit
@@ -78,7 +97,14 @@ func ApplyBudget(budget int, filters ...nostr.Filter) {
 		scalingFactor := float64(budget) / float64(sumHighers)
 		for _, idx := range highers {
 			limit := float64(filters[idx].Limit)
-			filters[idx].Limit = int(scalingFactor*limit + 0.5)
+			newLimit := int(scalingFactor * limit)
+
+			if newLimit == 0 {
+				filters[idx].Limit = 0
+				filters[idx].LimitZero = true
+			} else {
+				filters[idx].Limit = newLimit
+			}
 		}
 	}
 }
