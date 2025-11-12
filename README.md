@@ -9,6 +9,38 @@ A framework for building super custom [Nostr](https://github.com/nostr-protocol/
 go get github.com/pippellia-btc/rely
 ```
 
+## Quickstart
+
+### Prerequisites
+- Go 1.22+
+- A domain (or static hostname) used for NIP-42 authentication
+- Basic knowledge of [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md)
+
+### Minimal Relay
+```go
+package main
+
+import (
+	"context"
+
+	"github.com/pippellia-btc/rely"
+)
+
+func main() {
+	ctx := context.Background()
+
+	relay := rely.NewRelay(
+		rely.WithDomain("relay.example.com"),
+	)
+
+	if err := relay.StartAndServe(ctx, "127.0.0.1:3334"); err != nil {
+		panic(err)
+	}
+}
+```
+
+`StartAndServe` blocks; wrap it with your own signal handling or embed the relay into an existing HTTP server when you need custom lifecycle management. See [docs/getting-started.md](docs/getting-started.md) for a full walkthrough.
+
 ## Simple and Customizable
 Getting started is easy, and deep customization is just as straightforward.
 
@@ -28,7 +60,17 @@ relay := rely.NewRelay(
 )
 ```
 
-To find all the available options and documentation, see [options.go](/options.go).
+| Option | Default | Why/When |
+| --- | --- | --- |
+| `WithDomain` | `""` | Required for NIP-42. Without it, auth always fails. |
+| `WithQueueCapacity` | `1000` | Buffers bursts of work before worker threads process them. |
+| `WithMaxProcessors` | `runtime.NumCPU()` | Controls how many goroutines process EVENT/REQ/COUNT work. |
+| `WithClientResponseLimit` | `1000` | Enforces per-client backpressure for outbound responses. |
+| `WithRead/WriteBufferSize` | `1KB` | Increase when handling large payloads, lower to save RAM. |
+| `WithInfo` | Default NIP-11 doc | Advertise software/limits/capabilities to clients. |
+| `WithLogger` | Default slog logger | Integrate with your structured logging/observability stack. |
+
+The complete list plus tuning advice lives in [docs/configuration-and-performance.md](docs/configuration-and-performance.md) and [`options.go`](/options.go).
 
 ### Behavioral Customization
 
@@ -61,10 +103,10 @@ func RejectSatan(client Client, event *nostr.Event) error {
 }
 ```
 
-You can find all the available hooks and documentation, in [hooks.go](/hooks.go).  
+You can find all the available hooks documented in [docs/hooks-and-lifecycle.md](docs/hooks-and-lifecycle.md) and inline comments in [hooks.go](/hooks.go).  
 If you need additional hooks, don't hesitate to [open an issue](https://github.com/pippellia-btc/rely/issues/new)!
 
-If you are looking for inspiration or examples, check out the [examples](/examples/) directory.
+If you are looking for inspiration or examples, check out the [examples](/examples/) directory and the notes in [docs/examples-and-testing.md](docs/examples-and-testing.md).
 
 ### Intuitive interfaces
 
@@ -103,7 +145,7 @@ type Client interface {
 Rely is completely written in Go, a memory-safe and low level language that is easy to learn and performant. It's particularly fit for building server-side applications thanks to its powerful concurrency primitives like channels and goroutines.
 
 These features are extensively used in rely, creating a lock-free architecture on the hot-paths.  
-Inspired by [strfry](https://github.com/hoytech/strfry), rely also implements inverted indexes for matching broadcasted events with subscriptions, making this crucial operation very efficient. For more, check out the [architecture section](#architecture).
+Inspired by [strfry](https://github.com/hoytech/strfry), rely also implements inverted indexes for matching broadcasted events with subscriptions, making this crucial operation very efficient. For more, check out the [architecture section](#architecture) and the deep dive in [docs/configuration-and-performance.md](docs/configuration-and-performance.md).
 
 All of these optimizations allow a [dummy implementation](https://github.com/pippellia-btc/rely/blob/main/tests/random_test.go) using rely to serve 8000+ concurrent "spammy" clients with less than 1GB of RAM on a 2017 i5 CPU (4-cores).
 
@@ -123,7 +165,7 @@ Here is an example illustrating it.
 	f1: limit=10		f2: limit=290
 ```
 
-This prevents waste of CPU and bandwidth on events the client will not see, and penalizes clients that request more than they consume. The size of the client's queue can be customized with the appropriate [option](/options.go).
+This prevents waste of CPU and bandwidth on events the client will not see, and penalizes clients that request more than they consume. Guidance for selecting queue sizes and limits lives in [docs/configuration-and-performance.md](docs/configuration-and-performance.md).
 
 ## Architecture
 
@@ -152,7 +194,7 @@ The Processor received incoming requests (REQs, EVENTs, COUNTs), and handles the
 The Dispatcher is responsible for broadcasting newly received events to all matching subscriptions.
 To accomplish this task efficiently, it maintains inverted indexes for all active subscriptions of all clients, an approach inspired by [strfry](https://github.com/hoytech/strfry).
 
-However, the Dispatcher is not the ultimate authority on the subscriptions state. Each client is the authority for its own subscriptions, while the dispatcher only maintains an eventually-consistent snapshot of the active ones. This decision is motivated by two reasons:
+However, the Dispatcher is not the ultimate authority on the subscriptions state. Each client is the authority for its own subscriptions, while the dispatcher only maintains an eventually-consistent snapshot of the active ones. The rationale and trade-offs are covered in [docs/configuration-and-performance.md](docs/configuration-and-performance.md), and boil down to:
 
 1. having CLOSEs cancel the subscriptions as fast as possible to save work.
 2. making calls to `Client.Subscriptions` very efficiently.
@@ -160,7 +202,7 @@ However, the Dispatcher is not the ultimate authority on the subscriptions state
 ## Well tested
 
 Rely fetures unit tests for components that make sense to test in isolation.
-More importantly, we have a [random stress test](https://github.com/pippellia-btc/rely/blob/main/tests/stress_test.go) where the relay is bombarded with thousands of connections, events, filters, and abrupt disconnections every second. This test alone allowed the discovery of hard concurrency bugs and race conditions impossible to detect with simplistic unit tests.
+More importantly, we have a [random stress test](https://github.com/pippellia-btc/rely/blob/main/tests/stress_test.go) where the relay is bombarded with thousands of connections, events, filters, and abrupt disconnections every second. This test alone allowed the discovery of hard concurrency bugs and race conditions impossible to detect with simplistic unit tests. Instructions for running both the unit suite and stress harness live in [docs/examples-and-testing.md](docs/examples-and-testing.md).
 
 ## Used by
 
