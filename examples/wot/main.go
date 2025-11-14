@@ -5,11 +5,12 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
-	. "github.com/pippellia-btc/rely"
 )
 
 /*
@@ -28,7 +29,7 @@ while unknown IPs are initially given a positive reputation.
 Source: https://vertexlab.io/blog/reputation_rate_limit
 */
 
-const relayBudget = 10000000 // maximum events per day
+const relayBudget = 10_000_000 // maximum events per day
 const ipTokens = 100
 
 var cache *RankCache
@@ -38,15 +39,14 @@ var ErrAuthRequired = errors.New("auth-required:")
 var ErrRateLimited = errors.New("rate-limited: please try again in a few hours")
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go HandleSignals(cancel)
 
 	cache = NewRankCache(ctx)
 	limiter = NewLimiter(ctx)
 
-	relay := NewRelay(
-		WithDomain("example.com"), // required for validating NIP-42 auth
+	relay := rely.NewRelay(
+		rely.WithDomain("example.com"), // required for validating NIP-42 auth
 	)
 
 	relay.Reject.Connection = append(relay.Reject.Connection, func(_ rely.Stats, r *http.Request) error {

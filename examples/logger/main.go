@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -16,9 +18,8 @@ An example showcasing how to pass a custom logger for the relay to use.
 var logger *slog.Logger
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go rely.HandleSignals(cancel)
 
 	// creating a structured JSON logger
 	logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))

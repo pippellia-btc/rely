@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -13,9 +15,8 @@ The most basic example of a relay using rely.
 */
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()
 	relay.On.Event = Save

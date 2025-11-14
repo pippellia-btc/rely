@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os/signal"
 	"slices"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -20,9 +22,8 @@ IP address to a blacklist.
 var blacklist []string
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()
 	relay.Reject.Connection = append(relay.Reject.Connection, BadIP)

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip11"
@@ -15,15 +17,15 @@ This example shows how to configure NIP-11 relay information document.
 */
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go HandleSignals(cancel)
 
 	info := nip11.RelayInformationDocument{
-		Name:          "Rely",
-		Description:   "this is just an example",
-		PubKey:        "f683e87035f7ad4f44e0b98cfbd9537e16455a92cd38cefc4cb31db7557f5ef2",
-		SupportedNIPs: []any{1, 11, 42},
+		Name:           "Rely",
+		Description:    "this is just an example",
+		PubKey:         "f683e87035f7ad4f44e0b98cfbd9537e16455a92cd38cefc4cb31db7557f5ef2",
+		SupportedNIPs:  []any{1, 11, 42},
+		RelayCountries: []string{"Italy"},
 	}
 
 	relay := NewRelay(

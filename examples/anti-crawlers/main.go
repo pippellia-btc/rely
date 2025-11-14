@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"os/signal"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -14,9 +16,8 @@ When a client sends too many filters, the relay rejects the request.
 */
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay()
 	relay.Reject.Req = append(relay.Reject.Req, TooMany)

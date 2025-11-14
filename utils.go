@@ -6,11 +6,8 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
-	"os/signal"
 	"runtime"
 	"strings"
-	"syscall"
 
 	"github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
@@ -127,15 +124,6 @@ func (r *Relay) PrintStats() {
 	fmt.Printf("subscription updates channel: %d/%d\n", len(r.dispatcher.updates), cap(r.dispatcher.updates))
 	fmt.Printf("broadcast event channel: %d/%d\n", len(r.dispatcher.broadcast), cap(r.dispatcher.broadcast))
 	fmt.Println("---------------------------------------")
-}
-
-// HandleSignals listens to os signals, and then fires the cancel() function.
-// This cancels the associated context, propagating the signal to the rest of the program.
-func HandleSignals(cancel context.CancelFunc) {
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-	<-signalChan
-	cancel()
 }
 
 func isUnexpectedClose(err error) bool {

@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"math/rand/v2"
+	"os/signal"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
-	. "github.com/pippellia-btc/rely"
 )
 
 /*
 This programs shows how nostr events can be used as requests for short or long lived
-asynchronous jobs like DVMs.
+asynchronous jobs like DVMs. The store is obviously a joke.
 */
 
 var (
@@ -21,25 +22,25 @@ var (
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go HandleSignals(cancel)
 
 	store = make([]*nostr.Event, 0, 1000)
 
-	relay = NewRelay(
-		WithQueueCapacity(10_000), // increase capacity to absorb traffic bursts (higher RAM)
-		WithMaxProcessors(10),     // increase concurrent processors for faster execution (higher CPU)
+	relay = rely.NewRelay(
+		rely.WithQueueCapacity(10_000), // increase capacity to absorb traffic bursts (higher RAM)
+		rely.WithMaxProcessors(10),     // increase concurrent processors for faster execution (higher CPU)
 	)
 
 	relay.On.Event = Process
+	relay.On.Req = Query
 
 	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)
 	}
 }
 
-func Process(client rely.Client, request *nostr.Event) error {
+func Process(_ rely.Client, request *nostr.Event) error {
 	switch request.Kind {
 	case 5500:
 		// malware scanning DVM
@@ -54,6 +55,16 @@ func Process(client rely.Client, request *nostr.Event) error {
 	default:
 		return errors.New("unsupported kind")
 	}
+}
+
+func Query(ctx context.Context, _ rely.Client, filters nostr.Filters) ([]nostr.Event, error) {
+	events := make([]nostr.Event, 0, 100) // pre-allocating
+	for _, event := range store {
+		if filters.Match(event) {
+			events = append(events, *event)
+		}
+	}
+	return events, nil
 }
 
 func MalwareScan(request *nostr.Event) *nostr.Event {

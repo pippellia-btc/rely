@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"os/signal"
 	"slices"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
-	. "github.com/pippellia-btc/rely"
 )
 
 /*
@@ -19,24 +20,23 @@ This relay enforces privacy rules when a client requests NIP-04 DMs:
 */
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go HandleSignals(cancel)
 
-	relay := NewRelay(
-		WithDomain("example.com"), // the domain must be set to correctly validate NIP-42
+	relay := rely.NewRelay(
+		rely.WithDomain("example.com"), // the domain must be set to correctly validate NIP-42
 	)
 
-	relay.On.Connect = func(c Client) { c.SendAuth() }
-	relay.On.Auth = func(c Client) { log.Printf("client authed with pubkey %s", c.Pubkey()) }
-	relay.Reject.Req = append(relay.Reject.Req, AuthedOnDMs)
+	relay.On.Connect = func(c rely.Client) { c.SendAuth() }
+	relay.On.Auth = func(c rely.Client) { slog.Info("client authed", "pubkey", c.Pubkey()) }
+	relay.Reject.Req = append(relay.Reject.Req, UnauthedDMs)
 
 	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)
 	}
 }
 
-func AuthedOnDMs(client rely.Client, filters nostr.Filters) error {
+func UnauthedDMs(client rely.Client, filters nostr.Filters) error {
 	for _, filter := range filters {
 		if !slices.Contains(filter.Kinds, 4) {
 			continue
@@ -53,6 +53,5 @@ func AuthedOnDMs(client rely.Client, filters nostr.Filters) error {
 			return fmt.Errorf("restricted: you can only request the DMs of the pubkey %s", pubkey)
 		}
 	}
-
 	return nil
 }

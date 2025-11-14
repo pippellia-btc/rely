@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -12,14 +14,13 @@ import (
 /*
 A "sparing" relay that avoids responding to REQs when the client's
 response buffer is nearly full. This helps prevent overwhelming
-slow clients and demonstrates how to use Client.RemainingCapacity()
+slow clients and demonstrates how to use Client.RemainingCapacity
 to apply simple backpressure.
 */
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	go rely.HandleSignals(cancel)
 
 	relay := rely.NewRelay(
 		rely.WithClientResponseLimit(100), // decreased from default 1000
