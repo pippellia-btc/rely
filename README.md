@@ -13,8 +13,27 @@ go get github.com/pippellia-btc/rely
 Getting started is easy, and deep customization is just as straightforward.
 
 ```golang
-relay := NewRelay()
-relay.StartAndServe(ctx, "localhost:3334")
+package main
+
+import (
+	"context"
+	"os/signal"
+	"syscall"
+
+	"github.com/pippellia-btc/rely"
+)
+
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	relay := rely.NewRelay()
+
+	err := relay.StartAndServe(ctx, "localhost:3334")
+	if err != nil {
+		panic(err)
+	}
+}
 ```
 
 ### Structural Customization
