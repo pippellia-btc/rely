@@ -188,6 +188,7 @@ This section lists project and repositories that are using rely in production.
 - [ContextVM](https://github.com/ContextVM/contextvm-relay)
 - [Zapstore](https://github.com/zapstore/relay)
 - [Vertex](https://github.com/vertex-lab/relay)
+- [NextBlock](https://primal.net/e/nevent1qqsy0nfg6tqzrtkaeggp7jm5y8c89jrcnd3z64a2fvhzqg4jgyefyucye2qfu)
 
 ## FAQs
 
@@ -200,9 +201,23 @@ You can always loop through the filters and make a query for each.
 </details>
 
 <details>
+<summary>When Negentropy?</summary>
+It's in the roadmap.
+</details>
+
+<details>
 <summary>When NIP-86?</summary>
 
 Does anyone uses NIP-86? If so, please let me know.  
-Just so you know, you can embedd the `Relay` inside an http server, where you can configure all the methods you want.
+Just so you know, you can embedd the `Relay` inside a `http.Server`, where you can configure all the API routes you want,
+as shown in [this example](/examples/custom-api/main.go)
+
+</details>
+
+<details>
+<summary>How can I add my custom API?</summary>
+
+You can embedd the `Relay` inside a `http.Server`, where you can configure all the API routes you want,
+as shown in [this example](/examples/custom-api/main.go)
 
 </details>
