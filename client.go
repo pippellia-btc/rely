@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -467,7 +466,7 @@ func (c *client) ValidateAuth(auth authRequest) *requestError {
 		return &requestError{ID: auth.ID, Err: ErrInvalidTimestamp}
 	}
 
-	if !strings.Contains(auth.Relay(), c.relay.domain) {
+	if c.relay.domain == "" || normalizeURL(auth.Relay()) != c.relay.domain {
 		return &requestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
 	}
 

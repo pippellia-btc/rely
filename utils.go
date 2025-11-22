@@ -28,8 +28,19 @@ func IP(r *http.Request) string {
 	if err != nil {
 		return r.RemoteAddr // fallback: return as-is
 	}
-
 	return host
+}
+
+// normalizeURL removes the protocol scheme (e.g., "https://") if present,
+// returning only the host and path (e.g., "example.com/abc").
+func normalizeURL(url string) string {
+	url = strings.TrimSpace(url)
+	url = strings.TrimSuffix(url, "/")
+	index := strings.Index(url, "://")
+	if index != -1 {
+		return url[index+3:]
+	}
+	return url
 }
 
 // ApplyBudget adjusts the Limit of each filter in-place so that the total does not exceed the given budget.

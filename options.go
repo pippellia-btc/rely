@@ -3,7 +3,6 @@ package rely
 import (
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -26,7 +25,9 @@ type Option func(*Relay)
 // This is mandatory for validating NIP-42 authentication.
 // If this is unset, NIP-42 authentication will fail, and a warning will be logged.
 func WithDomain(d string) Option {
-	return func(r *Relay) { r.domain = strings.TrimSpace(d) }
+	return func(r *Relay) {
+		r.domain = normalizeURL(d)
+	}
 }
 
 // WithInfo sets a custom NIP-11 (Relay Information Document) JSON body returned

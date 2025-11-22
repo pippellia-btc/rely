@@ -344,7 +344,7 @@ func TestValidateAuth(t *testing.T) {
 		},
 		{
 			name:     "relay tag is different",
-			auth:     authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", "challenge"}, {"relay", "different"}}})},
+			auth:     authRequest{Event: Signed(nostr.Event{Kind: 22242, CreatedAt: nostr.Now(), Tags: nostr.Tags{{"challenge", "challenge"}, {"relay", "example.com.evil.website"}}})},
 			expected: ErrInvalidAuthRelay,
 		},
 		{

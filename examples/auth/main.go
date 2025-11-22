@@ -24,7 +24,7 @@ func main() {
 	defer cancel()
 
 	relay := rely.NewRelay(
-		rely.WithDomain("example.com"), // the domain must be set to correctly validate NIP-42
+		rely.WithDomain("relay.example.com"), // the domain must be set to correctly validate NIP-42
 	)
 
 	relay.On.Connect = func(c rely.Client) { c.SendAuth() }

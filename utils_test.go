@@ -1,7 +1,9 @@
 package rely
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -85,6 +87,28 @@ func TestApplyBudget(t *testing.T) {
 			ApplyBudget(test.budget, test.filters...)
 			if !reflect.DeepEqual(test.filters, test.expected) {
 				t.Fatalf("expected filters %v, got %v", test.expected, test.filters)
+			}
+		})
+	}
+}
+
+func TestNormalizeURL(t *testing.T) {
+	tests := []struct {
+		url      string
+		expected string
+	}{
+		{url: "", expected: ""},
+		{url: "wss://example.com/ciao", expected: "example.com/ciao"},
+		{url: "http://example.com/ciao", expected: "example.com/ciao"},
+		{url: "ws://example.com/", expected: "example.com"},
+		{url: "  example.com/ciao  ", expected: "example.com/ciao"},
+	}
+
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("Case=%d", i), func(t *testing.T) {
+			result := normalizeURL(test.url)
+			if !strings.EqualFold(result, test.expected) {
+				t.Fatalf("expected %v, got %v", test.expected, result)
 			}
 		})
 	}
