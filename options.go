@@ -78,6 +78,11 @@ func WithClientResponseLimit(n int) Option {
 	return func(r *Relay) { r.responseLimit = n }
 }
 
+// WithMaxClientPubkeys sets the maximum number of unique pubkeys with which a client can be authenticated at the same time.
+func WithMaxClientPubkeys(n int) Option {
+	return func(r *Relay) { r.maxClientPubkeys = n }
+}
+
 // WithReadBufferSize sets the read buffer size (in bytes) for the underlying websocket connection upgrader.
 func WithReadBufferSize(s int) Option {
 	return func(r *Relay) { r.upgrader.ReadBufferSize = s }
@@ -125,6 +130,10 @@ type systemSettings struct {
 	// and sent to the client, enforcing per-client backpressure and preventing overproduction of responses.
 	responseLimit int
 
+	// the maximum number of unique authenticated pubkeys per client.
+	// To specify it, use [WithMaxClientPubkeys].
+	maxClientPubkeys int
+
 	// the relay domain name (e.g., "example.com") used to validate the NIP-42 "relay" tag.
 	// It should be explicitly set with [WithDomain]; if unset, a warning will be logged and NIP-42 will fail.
 	domain string
@@ -135,8 +144,9 @@ type systemSettings struct {
 
 func newSystemSettings() systemSettings {
 	return systemSettings{
-		responseLimit: 1000,
-		info:          newRelayInfo(),
+		responseLimit:    1000,
+		maxClientPubkeys: 64,
+		info:             newRelayInfo(),
 	}
 }
 
@@ -150,7 +160,6 @@ func newRelayInfo() []byte {
 	if err != nil {
 		panic("failed to marshal default NIP-11 document: " + err.Error())
 	}
-
 	return json
 }
 
@@ -201,6 +210,10 @@ func (r *Relay) validate() {
 
 	if r.responseLimit < 1 {
 		panic("client response limit must be greater than 1 to allow responses to be sent")
+	}
+
+	if r.maxClientPubkeys < 1 {
+		panic("max authed pubkeys per client must be greater than 1 for NIP-42 to work")
 	}
 
 	if r.domain == "" {

@@ -300,7 +300,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		subs: make(map[string]subscription, 10),
 		auth: authState{
 			pubkeys:    smallset.New[string](10),
-			maxPubkeys: 64,
+			maxPubkeys: r.maxClientPubkeys,
 			domain:     r.domain,
 		},
 		uid:         r.assignID(),
