@@ -26,7 +26,7 @@ var (
 	ErrTooManyAuthed        = errors.New("trying to auth with too many pubkeys")
 )
 
-// AuthState contains the authentication state of a client. As per NIP-42, a client
+// AuthState manages the authentication state of a client. As per NIP-42, a client
 // can be authenticated with one or more pubkeys.
 type authState struct {
 	mu         sync.Mutex

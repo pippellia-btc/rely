@@ -83,8 +83,8 @@ type Client interface {
 type client struct {
 	mu   sync.Mutex
 	subs map[string]subscription
-	auth authState
 
+	auth             authState
 	uid              string
 	ip               string
 	invalidMessages  int
