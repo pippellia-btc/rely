@@ -28,7 +28,7 @@ func main() {
 	)
 
 	relay.On.Connect = func(c rely.Client) { c.SendAuth() }
-	relay.On.Auth = func(c rely.Client) { slog.Info("client authed", "pubkey", c.Pubkey()) }
+	relay.On.Auth = func(c rely.Client) { slog.Info("client authed", "pubkeys", c.Pubkeys()) }
 	relay.Reject.Req = append(relay.Reject.Req, UnauthedDMs)
 
 	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
@@ -42,15 +42,19 @@ func UnauthedDMs(client rely.Client, filters nostr.Filters) error {
 			continue
 		}
 
-		pubkey := client.Pubkey()
-		if pubkey == "" {
-			// the client is not authenticated, so it can't request DMs
-			return errors.New("auth-required: you must be authenticated to query for DMs")
+		if !client.IsAuthed() {
+			return errors.New("auth-required: you must be authenticated to query for kind-4 DMs")
 		}
 
-		if len(filter.Authors) != 1 || filter.Authors[0] != pubkey {
-			// the client is requesting DMs of other people
-			return fmt.Errorf("restricted: you can only request the DMs of the pubkey %s", pubkey)
+		if len(filter.Authors) == 0 {
+			return errors.New("restricted: you must specify the author to query for kind-4 DMs")
+		}
+
+		pubkeys := client.Pubkeys()
+		for _, author := range filter.Authors {
+			if !slices.Contains(pubkeys, author) {
+				return fmt.Errorf("restricted: you can only request the DMs of the pubkeys %s", pubkeys)
+			}
 		}
 	}
 	return nil

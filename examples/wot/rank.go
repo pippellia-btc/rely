@@ -57,7 +57,6 @@ func (c *RankCache) Rank(pubkey string) (float64, bool) {
 	if time.Since(rank.Timestamp) > c.StaleThreshold {
 		c.refresh <- pubkey
 	}
-
 	return rank.Rank, true
 }
 

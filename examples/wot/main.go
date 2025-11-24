@@ -15,7 +15,7 @@ import (
 
 /*
 This example presents a reputation-based rate limiter using a two-tier token bucket system:
-- client must authenticate with a pubkey (via NIP-42)
+- client must authenticate with exactly one pubkey (via NIP-42)
 - each pubkey has an associate bucket holding tokens
 - writing an event comsumes a token
 - tokens are refilled periodically based on the pubkey's rank (global pagerank)
@@ -35,9 +35,6 @@ const ipTokens = 100
 var cache *RankCache
 var limiter *Limiter
 
-var ErrAuthRequired = errors.New("auth-required:")
-var ErrRateLimited = errors.New("rate-limited: please try again in a few hours")
-
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -46,7 +43,8 @@ func main() {
 	limiter = NewLimiter(ctx)
 
 	relay := rely.NewRelay(
-		rely.WithDomain("example.com"), // required for validating NIP-42 auth
+		rely.WithDomain("relay.example.com"), // required for validating NIP-42 auth
+		rely.WithMaxClientPubkeys(1),         // enforcing max one pubkey per client
 	)
 
 	relay.Reject.Connection = append(relay.Reject.Connection, func(_ rely.Stats, r *http.Request) error {
@@ -54,38 +52,38 @@ func main() {
 		if limiter.Allow(rely.IP(r), ipRefill) {
 			return nil
 		}
-		return ErrRateLimited
+		return errors.New("rate-limited: please try again in a few hours")
 	})
 
 	// send an AUTH challenge as soon as the client connects
 	relay.On.Connect = func(c rely.Client) { c.SendAuth() }
 
 	relay.On.Event = func(c rely.Client, e *nostr.Event) error {
-		pubkey := c.Pubkey()
-		if pubkey == "" {
-			return ErrAuthRequired
+		pubkeys := c.Pubkeys()
+		if len(pubkeys) == 0 {
+			return errors.New("auth-required: you must be authenticated with exactly one pubkey to write here")
 		}
 
+		pubkey := pubkeys[0]
 		rank, exists := cache.Rank(pubkey)
 		if !exists {
 			// If the client IP has enough tokens, the pubkey is queued for ranking by Vertex;
 			// otherwise we disconnect the client as this is probably an attacker trying to waste our backend budget.
 			if !limiter.Allow(c.IP(), ipRefill) {
 				c.Disconnect()
-				return ErrRateLimited
+				return errors.New("rate-limited: please try again in a few hours")
 			}
 
 			cache.refresh <- pubkey
 		}
 
 		if !limiter.Allow(pubkey, pkRefill(rank)) {
-			return ErrRateLimited
+			return errors.New("rate-limited: please try again in a few hours")
 		}
-
 		return Save(e)
 	}
 
-	if err := relay.StartAndServe(ctx, "localhost:3335"); err != nil {
+	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)
 	}
 }
