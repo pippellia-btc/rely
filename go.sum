@@ -48,8 +48,8 @@ github.com/nbd-wtf/go-nostr v0.51.8 h1:CIoS+YqChcm4e1L1rfMZ3/mIwTz4CwApM2qx7MHNz
 github.com/nbd-wtf/go-nostr v0.51.8/go.mod h1:d6+DfvMWYG5pA3dmNMBJd6WCHVDDhkXbHqvfljf0Gzg=
 github.com/pippellia-btc/slicex v0.2.5 h1:cthD4tKjg9CiWFjotIQinhqF2r7K83mkqHBX3cjig4I=
 github.com/pippellia-btc/slicex v0.2.5/go.mod h1:fu7VjA9Cdk76wIUlkzWOYiMG8/VEs1fJiUhkKqEopd8=
-github.com/pippellia-btc/smallset v0.4.1 h1:QmPiDnpth91/o6W/z6tNZo4F0zpWYmUZQ9OJskQWz38=
-github.com/pippellia-btc/smallset v0.4.1/go.mod h1:VYIMqOCTpNyTqg08nBHG2xHIepR9Px70R6iKcSY28hY=
+github.com/pippellia-btc/smallset v0.4.2 h1:0TMEWEnc4khhqE68Qfr571P+3bZAGGCT/XDK8YaDXJQ=
+github.com/pippellia-btc/smallset v0.4.2/go.mod h1:VYIMqOCTpNyTqg08nBHG2xHIepR9Px70R6iKcSY28hY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/puzpuzpuz/xsync/v3 v3.5.1 h1:GJYJZwO6IdxN/IKbneznS6yPkVC+c3zyY/j19c++5Fg=
