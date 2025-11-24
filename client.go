@@ -2,9 +2,6 @@ package rely
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -12,22 +9,8 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
-	"github.com/nbd-wtf/go-nostr"
 
 	ws "github.com/gorilla/websocket"
-)
-
-const (
-	authChallengeBytes = 16
-	authTimeTolerance  = time.Minute
-)
-
-var (
-	ErrInvalidAuthRequest   = errors.New(`an AUTH request must follow this format: ['AUTH', {event_JSON}]`)
-	ErrInvalidTimestamp     = errors.New(`created_at must be within one minute from the current time`)
-	ErrInvalidAuthKind      = errors.New(`invalid AUTH kind`)
-	ErrInvalidAuthChallenge = errors.New(`invalid AUTH challenge`)
-	ErrInvalidAuthRelay     = errors.New(`invalid AUTH relay`)
 )
 
 // Client represents the nostr client connected to the relay. All methods are safe for concurrent use.
@@ -39,9 +22,18 @@ type Client interface {
 	// IP address of the client.
 	IP() string
 
-	// Pubkey the client used to authenticate with NIP-42, or an empty string if it didn't.
+	// Pubkeys return the slice of unique pubkeys the client used to authenticate with NIP-42.
 	// To initiate the authentication, call [Client.SendAuth].
-	Pubkey() string
+	Pubkeys() []string
+
+	// IsAuthed returns whether the client has performed authentication with one
+	// or more pubkeys. It's a more efficient version of len(Client.Pubkeys) > 0.
+	IsAuthed() bool
+
+	// SendAuth sends the client a newly generated AUTH challenge.
+	// This resets the authentication state: any previously authenticated pubkey is cleared,
+	// and a new challenge is generated and sent.
+	SendAuth()
 
 	// ConnectedAt returns the time when the client connected.
 	ConnectedAt() time.Time
@@ -55,11 +47,6 @@ type Client interface {
 
 	// SendNotice to the client, useful for greetings, warnings and other informational messages.
 	SendNotice(msg string)
-
-	// SendAuth sends the client a newly generated AUTH challenge.
-	// This resets the authentication state: any previously authenticated pubkey is cleared,
-	// and a new challenge is generated and sent.
-	SendAuth()
 
 	// Disconnect the client, closing its websocket connection with a [websocket.CloseNormalClosure]
 	Disconnect()
@@ -94,10 +81,9 @@ type Client interface {
 // - read errors in the [client.read] (automatic)
 // - the call to [client.Disconnect] (automatic or manual)
 type client struct {
-	mu        sync.Mutex
-	subs      map[string]subscription
-	pubkey    string
-	challenge string
+	mu   sync.Mutex
+	subs map[string]subscription
+	auth authState
 
 	uid              string
 	ip               string
@@ -119,36 +105,13 @@ type client struct {
 
 func (c *client) UID() string            { return c.uid }
 func (c *client) IP() string             { return c.ip }
+func (c *client) Pubkeys() []string      { return c.auth.Pubkeys() }
+func (c *client) IsAuthed() bool         { return c.auth.IsAuthed() }
 func (c *client) ConnectedAt() time.Time { return c.connectedAt }
 func (c *client) Age() time.Duration     { return time.Since(c.connectedAt) }
 func (c *client) DroppedResponses() int  { return int(c.droppedResponses.Load()) }
 func (c *client) RemainingCapacity() int { return cap(c.responses) - len(c.responses) }
 func (c *client) SendNotice(msg string)  { c.send(noticeResponse{Message: msg}) }
-
-func (c *client) SetPubkey(pk string) {
-	c.mu.Lock()
-	c.pubkey = pk
-	c.mu.Unlock()
-}
-
-func (c *client) Pubkey() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.pubkey
-}
-
-func (c *client) SendAuth() {
-	bytes := make([]byte, authChallengeBytes)
-	rand.Read(bytes)
-	challenge := hex.EncodeToString(bytes)
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.pubkey = ""
-	c.challenge = challenge
-	c.send(authResponse{Challenge: challenge})
-}
 
 func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
@@ -255,14 +218,10 @@ func (c *client) read() {
 				continue
 			}
 
-			if err := c.ValidateAuth(auth); err != nil {
+			err = c.handleAuth(auth)
+			if err != nil {
 				c.send(okResponse{ID: err.ID, Saved: false, Reason: err.Error()})
-				continue
 			}
-
-			c.SetPubkey(auth.PubKey)
-			c.send(okResponse{ID: auth.ID, Saved: true})
-			c.relay.On.Auth(c)
 
 		default:
 			c.invalidMessages++
@@ -387,35 +346,20 @@ func (c *client) handleCount(count countRequest) *requestError {
 	return c.relay.tryProcess(count)
 }
 
-// ValidateAuth returns the appropriate error if the auth is invalid, otherwise returns nil.
-func (c *client) ValidateAuth(auth authRequest) *requestError {
-	if auth.Event.Kind != nostr.KindClientAuthentication {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthKind}
+func (c *client) handleAuth(request authRequest) *requestError {
+	if err := c.auth.Validate(request); err != nil {
+		// increase the invalid messages count to avoid attacking clients from spamming
+		// the relay with invalid auth requests, as they will eventually be disconnected.
+		c.invalidMessages++
+		return &requestError{ID: request.ID, Err: err}
 	}
 
-	if time.Since(auth.CreatedAt.Time()).Abs() > authTimeTolerance {
-		return &requestError{ID: auth.ID, Err: ErrInvalidTimestamp}
+	if err := c.auth.Add(request.PubKey); err != nil {
+		return &requestError{ID: request.ID, Err: err}
 	}
 
-	if c.relay.domain == "" || normalizeURL(auth.Relay()) != c.relay.domain {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthRelay}
-	}
-
-	if !auth.Event.CheckID() {
-		return &requestError{ID: auth.ID, Err: ErrInvalidEventID}
-	}
-
-	match, err := auth.Event.CheckSignature()
-	if err != nil || !match {
-		return &requestError{ID: auth.ID, Err: ErrInvalidEventSignature}
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.challenge == "" || auth.Challenge() != c.challenge {
-		return &requestError{ID: auth.ID, Err: ErrInvalidAuthChallenge}
-	}
+	c.send(okResponse{ID: request.ID, Saved: true})
+	c.relay.On.Auth(c)
 	return nil
 }
 
