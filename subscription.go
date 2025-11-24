@@ -52,3 +52,72 @@ func (s subscription) CreatedAt() time.Time        { return s.createdAt }
 func (s subscription) Age() time.Duration          { return time.Since(s.createdAt) }
 func (s subscription) Matches(e *nostr.Event) bool { return s.filters.Match(e) }
 func (s subscription) Close(reason string)         { s.client.CloseSubWithReason(s.id, reason) }
+
+// Open or overwrite a subscription.
+func (c *client) Open(s subscription) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	old, exists := c.subs[s.id]
+	if exists {
+		old.cancel()
+		c.subs[s.id] = s
+		c.relay.unindex(old)
+		c.relay.index(s)
+		return
+	}
+
+	c.subs[s.id] = s
+	c.relay.index(s)
+}
+
+// CloseSub closes a subscription by its id, if present.
+func (c *client) CloseSub(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	sub, exists := c.subs[id]
+	if exists {
+		sub.cancel()
+		delete(c.subs, id)
+		c.relay.unindex(sub)
+	}
+}
+
+// CloseSubWithReason closes a subscription by its id, if present, and sends a
+// CLOSED message with the provided reason.
+func (c *client) CloseSubWithReason(id, reason string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	sub, exists := c.subs[id]
+	if exists {
+		sub.cancel()
+		delete(c.subs, id)
+		c.relay.unindex(sub)
+		c.send(closedResponse{ID: id, Reason: reason})
+	}
+}
+
+// CloseAllSubs closes all subscriptions of the client.
+func (c *client) CloseAllSubs() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for id, sub := range c.subs {
+		sub.cancel()
+		delete(c.subs, id)
+		c.relay.unindex(sub)
+	}
+}
+
+func (c *client) Subscriptions() []Subscription {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	subs := make([]Subscription, 0, len(c.subs))
+	for _, s := range c.subs {
+		subs = append(subs, s)
+	}
+	return subs
+}
