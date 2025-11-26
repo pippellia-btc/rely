@@ -41,7 +41,7 @@ Fine-tune core parameters using functional options:
 
 ```golang
 relay := rely.NewRelay(
-    rely.WithDomain("myDomain.com"),	// required for NIP-42 validation
+	rely.WithDomain("myDomain.com"),	// required for NIP-42 validation
 	rely.WithLogger(myLogger),			// configure the relay logger
 	rely.WithInfo(myRelayInfo)			// set up nip-11 information document
 )
@@ -100,7 +100,7 @@ No obscure structures leaking implementation details, just intuitive methods tha
 type Client interface {
 	IP() string
 	
-	Pubkey() string
+	Pubkeys() []string
 
 	ConnectedAt() time.Time
 
@@ -189,6 +189,13 @@ This section lists project and repositories that are using rely in production.
 - [Zapstore](https://github.com/zapstore/relay)
 - [Vertex](https://github.com/vertex-lab/relay)
 - [NextBlock](https://primal.net/e/nevent1qqsy0nfg6tqzrtkaeggp7jm5y8c89jrcnd3z64a2fvhzqg4jgyefyucye2qfu)
+
+## Databases
+
+Rely doesn't come with a default database, you have to provide your own.  
+Fortunately, the community has developed several ready-to-use database implementations:
+- [nostr.sqlite](https://github.com/vertex-lab/nostr-sqlite): a performant and highly customizable SQLite store for Nostr events.
+- [eventstore](https://pkg.go.dev/fiatjaf.com/nostr@v0.0.0-20251125175014-6367bd71d42a/eventstore): A collection of reusable database connectors, wrappers and schemas that store Nostr events
 
 ## FAQs
 
