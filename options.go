@@ -83,6 +83,12 @@ func WithMaxClientPubkeys(n int) Option {
 	return func(r *Relay) { r.maxClientPubkeys = n }
 }
 
+// WithoutMultiAuth limits to 1 the maximum number of unique pubkeys with which a client can be authenticated at the same time.
+// It's equivalent to WithMaxClientPubkeys(1).
+func WithoutMultiAuth() Option {
+	return func(r *Relay) { r.maxClientPubkeys = 1 }
+}
+
 // WithReadBufferSize sets the read buffer size (in bytes) for the underlying websocket connection upgrader.
 func WithReadBufferSize(s int) Option {
 	return func(r *Relay) { r.upgrader.ReadBufferSize = s }

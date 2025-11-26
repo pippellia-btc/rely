@@ -44,7 +44,7 @@ func main() {
 
 	relay := rely.NewRelay(
 		rely.WithDomain("relay.example.com"), // required for validating NIP-42 auth
-		rely.WithMaxClientPubkeys(1),         // enforcing max one pubkey per client
+		rely.WithoutMultiAuth(),              // enforcing max one pubkey per client
 	)
 
 	relay.Reject.Connection = append(relay.Reject.Connection, func(_ rely.Stats, r *http.Request) error {
