@@ -11,14 +11,6 @@ import (
 	"github.com/nbd-wtf/go-nostr/nip11"
 )
 
-const (
-	writeWait      time.Duration = 10 * time.Second
-	pongWait       time.Duration = 60 * time.Second
-	pingPeriod     time.Duration = 45 * time.Second
-	maxMessageSize int64         = 500000 // 0.5MB
-	bufferSize     int           = 1024   // 1KB
-)
-
 type Option func(*Relay)
 
 // WithDomain sets the relay's official domain name (e.g., "example.com").
@@ -180,14 +172,14 @@ type websocketSettings struct {
 func newWebsocketSettings() websocketSettings {
 	return websocketSettings{
 		upgrader: ws.Upgrader{
-			ReadBufferSize:  bufferSize,
-			WriteBufferSize: bufferSize,
+			ReadBufferSize:  1024, // 1KB
+			WriteBufferSize: 1024, // 1KB
 			CheckOrigin:     func(r *http.Request) bool { return true },
 		},
-		writeWait:      writeWait,
-		pongWait:       pongWait,
-		pingPeriod:     pingPeriod,
-		maxMessageSize: maxMessageSize,
+		writeWait:      10 * time.Second,
+		pongWait:       60 * time.Second,
+		pingPeriod:     45 * time.Second,
+		maxMessageSize: 500_000, // 0.5MB
 	}
 }
 
@@ -197,15 +189,12 @@ func (r *Relay) validate() {
 	if r.pingPeriod < 1*time.Second {
 		panic("ping period must be greater than 1s to function reliably")
 	}
-
 	if r.pongWait <= r.pingPeriod {
 		panic("pong wait must be greater than ping period to function reliably")
 	}
-
 	if r.writeWait < 1*time.Second {
 		panic("write wait must be greater than 1s to function reliably")
 	}
-
 	if r.maxMessageSize < 512 {
 		panic("max message size must be greater than 512 bytes to accept nostr events")
 	}
@@ -213,15 +202,16 @@ func (r *Relay) validate() {
 	if r.processor.maxWorkers < 1 {
 		panic("max processors must be greater than 1 to correctly process from the queue")
 	}
+	if cap(r.processor.queue) < 1 {
+		panic("processor queue must have a capacity greater than 1 to correctly handle client requests")
+	}
 
 	if r.responseLimit < 1 {
 		panic("client response limit must be greater than 1 to allow responses to be sent")
 	}
-
 	if r.maxClientPubkeys < 1 {
 		panic("max authed pubkeys per client must be greater than 1 for NIP-42 to work")
 	}
-
 	if r.domain == "" {
 		r.log.Warn("you must set the relay's domain to validate NIP-42 auth")
 	}
