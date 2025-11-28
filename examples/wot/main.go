@@ -49,7 +49,8 @@ func main() {
 
 	relay.Reject.Connection = append(relay.Reject.Connection, func(_ rely.Stats, r *http.Request) error {
 		// rate limiting IPs
-		if limiter.Allow(rely.IP(r), ipRefill) {
+		ip := rely.GetIP(r).Group()
+		if limiter.Allow(ip, ipRefill) {
 			return nil
 		}
 		return errors.New("rate-limited: please try again in a few hours")
@@ -69,7 +70,7 @@ func main() {
 		if !exists {
 			// If the client IP has enough tokens, the pubkey is queued for ranking by Vertex;
 			// otherwise we disconnect the client as this is probably an attacker trying to waste our backend budget.
-			if !limiter.Allow(c.IP(), ipRefill) {
+			if !limiter.Allow(c.IP().Group(), ipRefill) {
 				c.Disconnect()
 				return errors.New("rate-limited: please try again in a few hours")
 			}

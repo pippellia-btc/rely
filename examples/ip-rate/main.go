@@ -34,7 +34,7 @@ func main() {
 }
 
 func BadIP(s rely.Stats, req *http.Request) error {
-	IP := rely.IP(req)
+	IP := rely.GetIP(req).Group()
 	if _, ok := counter[IP]; !ok {
 		// this is a new IP
 		counter[IP] = &atomic.Int32{}

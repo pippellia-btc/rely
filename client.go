@@ -19,8 +19,9 @@ type Client interface {
 	// external statistics or resources.
 	UID() string
 
-	// IP address of the client.
-	IP() string
+	// IP address of the client. For rate-limiting purposes you should use [IP.Bucket]
+	// or [IP.BucketPrefix] as a normalized representation of the IP.
+	IP() IP
 
 	// Pubkeys return the slice of unique pubkeys the client used to authenticate with NIP-42.
 	// To initiate the authentication, call [Client.SendAuth].
@@ -84,11 +85,12 @@ type client struct {
 	mu   sync.Mutex
 	subs map[string]subscription
 
-	auth             authState
-	uid              string
-	ip               string
+	auth        authState
+	ip          IP
+	uid         string
+	connectedAt time.Time
+
 	invalidMessages  int
-	connectedAt      time.Time
 	droppedResponses atomic.Int64
 
 	// pointer to parent relay, which must only be used for:
@@ -104,7 +106,7 @@ type client struct {
 }
 
 func (c *client) UID() string            { return c.uid }
-func (c *client) IP() string             { return c.ip }
+func (c *client) IP() IP                 { return c.ip }
 func (c *client) Pubkeys() []string      { return c.auth.Pubkeys() }
 func (c *client) IsAuthed() bool         { return c.auth.IsAuthed() }
 func (c *client) ConnectedAt() time.Time { return c.connectedAt }

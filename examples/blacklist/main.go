@@ -35,7 +35,7 @@ func main() {
 }
 
 func BadIP(s rely.Stats, req *http.Request) error {
-	if slices.Contains(blacklist, rely.IP(req)) {
+	if slices.Contains(blacklist, rely.GetIP(req).Group()) {
 		return fmt.Errorf("you are not welcome here")
 	}
 	return nil
@@ -44,7 +44,7 @@ func BadIP(s rely.Stats, req *http.Request) error {
 func Kind666(client rely.Client, event *nostr.Event) error {
 	if event.Kind == 666 {
 		// disconnect the client and return an error
-		blacklist = append(blacklist, client.IP())
+		blacklist = append(blacklist, client.IP().Group())
 		client.Disconnect()
 		return errors.New("not today, Satan. Not today")
 	}

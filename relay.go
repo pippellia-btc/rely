@@ -304,7 +304,7 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 			domain:     r.domain,
 		},
 		uid:         r.assignID(),
-		ip:          IP(req),
+		ip:          GetIP(req),
 		connectedAt: time.Now(),
 		relay:       r,
 		conn:        conn,

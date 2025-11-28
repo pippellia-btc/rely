@@ -4,32 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"net/http"
 	"runtime"
 	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/nbd-wtf/go-nostr"
 )
-
-// Extracts the IP address from the http request.
-func IP(r *http.Request) string {
-	if IP := r.Header.Get("X-Real-IP"); IP != "" {
-		return IP
-	}
-
-	if IPs := r.Header.Get("X-Forwarded-For"); IPs != "" {
-		first := strings.Split(IPs, ",")[0]
-		return strings.TrimSpace(first)
-	}
-
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr // fallback: return as-is
-	}
-	return host
-}
 
 // normalizeURL removes the protocol scheme (e.g., "https://") if present,
 // returning only the host and path (e.g., "example.com/abc").
