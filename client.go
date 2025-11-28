@@ -19,8 +19,8 @@ type Client interface {
 	// external statistics or resources.
 	UID() string
 
-	// IP address of the client. For rate-limiting purposes you should use [IP.Bucket]
-	// or [IP.BucketPrefix] as a normalized representation of the IP.
+	// IP address of the client. For rate-limiting purposes you should use [IP.Group]
+	// or [IP.GroupPrefix] as a normalized representation of the IP.
 	IP() IP
 
 	// Pubkeys return the slice of unique pubkeys the client used to authenticate with NIP-42.

@@ -48,6 +48,9 @@ func (ip IP) IsV4() bool { return ip.Raw.To4() != nil }
 // IsV6 returns whether the IP is an IPv6 address.
 func (ip IP) IsV6() bool { return len(ip.Raw) == net.IPv6len && ip.Raw.To4() == nil }
 
+// IsLoopback reports whether IP is a loopback address.
+func (ip IP) IsLoopback() bool { return ip.Raw.IsLoopback() }
+
 // String returns the string form of the raw [net.IP] address ip.
 func (ip IP) String() string { return ip.Raw.String() }
 
