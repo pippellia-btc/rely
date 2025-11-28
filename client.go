@@ -143,7 +143,7 @@ func (c *client) read() {
 		messageType, reader, err := c.conn.NextReader()
 		if err != nil {
 			if isUnexpectedClose(err) {
-				c.relay.log.Debug("unexpected close error from IP %s: %v", c.ip, err)
+				c.relay.log.Debug("unexpected close error", "error", err, "client", c.ip)
 			}
 			return
 		}
@@ -279,7 +279,7 @@ func (c *client) write() {
 
 			if err := c.writeMessage(bytes); err != nil {
 				if isUnexpectedClose(err) {
-					c.relay.log.Debug("unexpected error when attemping to write to the IP %s: %v", c.ip, err)
+					c.relay.log.Debug("unexpected error when attemping to write", "error", err, "client", c.ip)
 				}
 				return
 			}
@@ -287,7 +287,7 @@ func (c *client) write() {
 		case <-ticker.C:
 			if err := c.writePing(); err != nil {
 				if isUnexpectedClose(err) {
-					c.relay.log.Debug("unexpected error when attemping to ping the IP %s: %v", c.ip, err)
+					c.relay.log.Debug("unexpected error when attemping to ping", "error", err, "client", c.ip)
 				}
 				return
 			}
