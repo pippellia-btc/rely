@@ -33,6 +33,24 @@ func DefaultHooks() Hooks {
 	}
 }
 
+// Slice is an internal type used to simplify registration of hooks.
+type slice[T any] []T
+
+// Append adds hooks to the end of the slice, in the provided order.
+func (s *slice[T]) Append(hooks ...T) {
+	*s = append(*s, hooks...)
+}
+
+// Prepend adds hooks to the start of the slice, in the provided order.
+func (s *slice[T]) Prepend(hooks ...T) {
+	*s = append(hooks, *s...)
+}
+
+// Clear resets the slice, removing all registered hooks.
+func (s *slice[T]) Clear() {
+	*s = nil
+}
+
 // RejectHooks defines optional functions that can preemptively reject
 // certain actions before they are processed by the relay.
 //
@@ -45,19 +63,19 @@ func DefaultHooks() Hooks {
 type RejectHooks struct {
 	// Connection is invoked before establishing a new client connection.
 	// Returning a non-nil error rejects the connection.
-	Connection []func(Stats, *http.Request) error
+	Connection slice[func(Stats, *http.Request) error]
 
 	// Event is invoked before processing an EVENT message.
 	// Returning a non-nil error rejects the event.
-	Event []func(Client, *nostr.Event) error
+	Event slice[func(Client, *nostr.Event) error]
 
 	// Req is invoked before processing a REQ message.
 	// Returning a non-nil error rejects the request.
-	Req []func(Client, nostr.Filters) error
+	Req slice[func(Client, nostr.Filters) error]
 
 	// Count is invoked before processing a NIP-45 COUNT request.
 	// Returning a non-nil error rejects the request.
-	Count []func(Client, nostr.Filters) error
+	Count slice[func(Client, nostr.Filters) error]
 }
 
 func DefaultRejectHooks() RejectHooks {

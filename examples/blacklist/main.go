@@ -26,8 +26,8 @@ func main() {
 	defer cancel()
 
 	relay := rely.NewRelay()
-	relay.Reject.Connection = append(relay.Reject.Connection, BadIP)
-	relay.Reject.Event = append(relay.Reject.Event, Kind666)
+	relay.Reject.Connection.Prepend(BadIP)
+	relay.Reject.Event.Prepend(KindOfSatanic)
 
 	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)
@@ -35,13 +35,14 @@ func main() {
 }
 
 func BadIP(s rely.Stats, req *http.Request) error {
-	if slices.Contains(blacklist, rely.GetIP(req).Group()) {
+	ip := rely.GetIP(req).Group()
+	if slices.Contains(blacklist, ip) {
 		return fmt.Errorf("you are not welcome here")
 	}
 	return nil
 }
 
-func Kind666(client rely.Client, event *nostr.Event) error {
+func KindOfSatanic(client rely.Client, event *nostr.Event) error {
 	if event.Kind == 666 {
 		// disconnect the client and return an error
 		blacklist = append(blacklist, client.IP().Group())

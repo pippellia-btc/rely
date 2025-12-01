@@ -47,7 +47,7 @@ func main() {
 		rely.WithoutMultiAuth(),              // enforcing max one pubkey per client
 	)
 
-	relay.Reject.Connection = append(relay.Reject.Connection, func(_ rely.Stats, r *http.Request) error {
+	relay.Reject.Connection.Prepend(func(_ rely.Stats, r *http.Request) error {
 		// rate limiting IPs
 		ip := rely.GetIP(r).Group()
 		if limiter.Allow(ip, ipRefill) {

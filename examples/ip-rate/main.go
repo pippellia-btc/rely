@@ -25,7 +25,7 @@ func main() {
 	defer cancel()
 
 	relay := rely.NewRelay()
-	relay.Reject.Connection = append(relay.Reject.Connection, BadIP)
+	relay.Reject.Connection.Prepend(BadIP)
 	relay.On.Connect = PrintIP
 
 	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {

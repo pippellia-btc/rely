@@ -12,7 +12,8 @@ import (
 )
 
 /*
-This examples shows how to enable NIP-45
+This examples shows how to enable NIP-45, which is as simple as registering a function
+in the relay.On.Count hook.
 */
 
 func main() {

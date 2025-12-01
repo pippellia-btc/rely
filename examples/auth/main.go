@@ -27,9 +27,9 @@ func main() {
 		rely.WithDomain("relay.example.com"), // the domain must be set to correctly validate NIP-42
 	)
 
+	relay.Reject.Req.Append(UnauthedDMs)
 	relay.On.Connect = func(c rely.Client) { c.SendAuth() }
 	relay.On.Auth = func(c rely.Client) { slog.Info("client authed", "pubkeys", c.Pubkeys()) }
-	relay.Reject.Req = append(relay.Reject.Req, UnauthedDMs)
 
 	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)

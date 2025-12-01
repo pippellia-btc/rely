@@ -20,7 +20,7 @@ func main() {
 	defer cancel()
 
 	relay := rely.NewRelay()
-	relay.Reject.Req = append(relay.Reject.Req, TooMany)
+	relay.Reject.Req.Append(TooMany)
 
 	if err := relay.StartAndServe(ctx, "localhost:3334"); err != nil {
 		panic(err)

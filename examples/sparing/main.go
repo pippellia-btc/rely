@@ -26,7 +26,7 @@ func main() {
 		rely.WithClientResponseLimit(100), // decreased from default 1000
 	)
 
-	relay.Reject.Req = append(relay.Reject.Req, TooGreedy)
+	relay.Reject.Req.Prepend(TooGreedy)
 	relay.On.Event = Save
 	relay.On.Req = Query
 
