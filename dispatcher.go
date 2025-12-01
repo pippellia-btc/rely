@@ -226,7 +226,7 @@ func (d *dispatcher) Index(s subscription) {
 }
 
 // Remove the subscription from the dispatcher indexes, one filter at the time.
-// After removal, if a set is empty, the corresponding key it's removed from the map
+// After removal, if a set is empty, the corresponding key is removed from the map
 // to allow the map's bucket to be reused.
 func (d *dispatcher) Unindex(s subscription) {
 	sid := sID(s.uid)
