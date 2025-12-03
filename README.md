@@ -98,7 +98,7 @@ No obscure structures leaking implementation details, just intuitive methods tha
 
 ```golang
 type Client interface {
-	IP() string
+	IP() IP
 	
 	Pubkeys() []string
 
