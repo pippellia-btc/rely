@@ -127,7 +127,7 @@ func (r *Relay) unindex(s subscription) {
 // don't forget to wait for a graceful shutdown with [Relay.Wait].
 func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	r.Start(ctx)
-	exitErr := make(chan error, 1)
+	exit := make(chan error, 1)
 
 	server := &http.Server{
 		Addr:              address,
@@ -138,8 +138,9 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 
 	go func() {
 		r.log.Info("serving the relay", "address", address)
-		if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			exitErr <- err
+		err := server.ListenAndServe()
+		if !errors.Is(err, http.ErrServerClosed) {
+			exit <- err
 		}
 	}()
 
@@ -152,7 +153,7 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 		r.Wait()
 		return err
 
-	case err := <-exitErr:
+	case err := <-exit:
 		return err
 	}
 }
