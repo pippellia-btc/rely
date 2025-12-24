@@ -114,16 +114,22 @@ func WithMaxMessageSize(s int64) Option {
 	return func(r *Relay) { r.settings.WS.maxMessageSize = s }
 }
 
-// WithReadHeaderTimeout sets the maximum duration for reading the headers
-// of an HTTP request. Must be > 1s.
+// WithReadHeaderTimeout sets the maximum duration for reading the headers of an HTTP request.
+// It's used only in the http server used by [Relay.StartAndServe]. Must be > 1s.
 func WithReadHeaderTimeout(d time.Duration) Option {
 	return func(r *Relay) { r.settings.HTTP.readHeaderTimeout = d }
 }
 
-// WithIdleTimeout sets the maximum duration an HTTP connection can be idle
-// before being closed. Must be > 10s.
+// WithIdleTimeout sets the maximum duration an HTTP connection can be idle before being closed.
+// It's used only in the http server used by [Relay.StartAndServe]. Must be > 10s.
 func WithIdleTimeout(d time.Duration) Option {
 	return func(r *Relay) { r.settings.HTTP.idleTimeout = d }
+}
+
+// WithShutdownTimeout sets the maximum duration to wait for the HTTP server to gracefully shut down
+// when the context is cancelled. It's used only in the http server used by [Relay.StartAndServe].
+func WithShutdownTimeout(d time.Duration) Option {
+	return func(r *Relay) { r.settings.HTTP.shutdownTimeout = d }
 }
 
 // settings holds the configurable parameters for the Relay.
@@ -192,12 +198,14 @@ func newRelayInfo() []byte {
 type httpSettings struct {
 	readHeaderTimeout time.Duration
 	idleTimeout       time.Duration
+	shutdownTimeout   time.Duration
 }
 
 func newHTTPSettings() httpSettings {
 	return httpSettings{
 		readHeaderTimeout: 5 * time.Second,
 		idleTimeout:       120 * time.Second,
+		shutdownTimeout:   5 * time.Second,
 	}
 }
 
@@ -232,6 +240,9 @@ func (r *Relay) validate() {
 	}
 	if r.settings.HTTP.idleTimeout < 10*time.Second {
 		panic("http idle timeout must be greater than 10s to function reliably")
+	}
+	if r.settings.HTTP.shutdownTimeout < 1*time.Second {
+		r.log.Warn("http shutdown timeout should be greater than 1s to avoid abrupt disconnections")
 	}
 
 	// websocket

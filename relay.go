@@ -146,7 +146,7 @@ func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 
 	select {
 	case <-ctx.Done():
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), r.settings.HTTP.shutdownTimeout)
 		defer cancel()
 
 		err := server.Shutdown(ctx)
