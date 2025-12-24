@@ -34,8 +34,7 @@ type Relay struct {
 	log *slog.Logger
 
 	Hooks
-	systemSettings
-	websocketSettings
+	settings
 
 	wg   sync.WaitGroup
 	done chan struct{}
@@ -54,14 +53,13 @@ type Relay struct {
 //	)
 func NewRelay(opts ...Option) *Relay {
 	r := &Relay{
-		clients:           make(map[*client]struct{}, 1000),
-		register:          make(chan *client, 256),
-		unregister:        make(chan *client, 256),
-		log:               slog.Default(),
-		Hooks:             DefaultHooks(),
-		systemSettings:    newSystemSettings(),
-		websocketSettings: newWebsocketSettings(),
-		done:              make(chan struct{}),
+		clients:    make(map[*client]struct{}, 1000),
+		register:   make(chan *client, 256),
+		unregister: make(chan *client, 256),
+		log:        slog.Default(),
+		Hooks:      DefaultHooks(),
+		settings:   newSettings(),
+		done:       make(chan struct{}),
 	}
 
 	r.dispatcher = newDispatcher(r)
@@ -130,7 +128,13 @@ func (r *Relay) unindex(s subscription) {
 func (r *Relay) StartAndServe(ctx context.Context, address string) error {
 	r.Start(ctx)
 	exitErr := make(chan error, 1)
-	server := &http.Server{Addr: address, Handler: r}
+
+	server := &http.Server{
+		Addr:              address,
+		Handler:           r,
+		ReadHeaderTimeout: r.settings.HTTP.readHeaderTimeout,
+		IdleTimeout:       r.settings.HTTP.idleTimeout,
+	}
 
 	go func() {
 		r.log.Info("serving the relay", "address", address)
@@ -290,7 +294,7 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 // ServeWS upgrades the http request to a websocket, creates a [client], and registers it with the [Relay].
 func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
-	conn, err := r.upgrader.Upgrade(w, req, nil)
+	conn, err := r.WS.upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		r.log.Error("failed to upgrade to websocket", "error", err)
 		return
@@ -300,15 +304,15 @@ func (r *Relay) ServeWS(w http.ResponseWriter, req *http.Request) {
 		subs: make(map[string]subscription, 10),
 		auth: authState{
 			pubkeys:    smallset.New[string](10),
-			maxPubkeys: r.maxClientPubkeys,
-			domain:     r.domain,
+			maxPubkeys: r.settings.Sys.maxClientPubkeys,
+			domain:     r.settings.Sys.domain,
 		},
 		uid:         r.assignID(),
 		ip:          GetIP(req),
 		connectedAt: time.Now(),
 		relay:       r,
 		conn:        conn,
-		responses:   make(chan response, r.responseLimit),
+		responses:   make(chan response, r.settings.Sys.responseLimit),
 		done:        make(chan struct{}),
 	}
 
@@ -332,5 +336,5 @@ func (r *Relay) ServeNIP11(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/nostr+json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(r.info)
+	w.Write(r.settings.Sys.info)
 }

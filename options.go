@@ -13,12 +13,12 @@ import (
 
 type Option func(*Relay)
 
-// WithDomain sets the relay's official domain name (e.g., "example.com").
+// WithDomain sets the relay's official domain name (e.g., "relay.example.com").
 // This is mandatory for validating NIP-42 authentication.
 // If this is unset, NIP-42 authentication will fail, and a warning will be logged.
 func WithDomain(d string) Option {
 	return func(r *Relay) {
-		r.domain = normalizeURL(d)
+		r.settings.Sys.domain = normalizeURL(d)
 	}
 }
 
@@ -31,8 +31,7 @@ func WithInfo(info nip11.RelayInformationDocument) Option {
 		if err != nil {
 			panic("failed to marshal NIP-11 document: " + err.Error())
 		}
-
-		r.info = json
+		r.settings.Sys.info = json
 	}
 }
 
@@ -67,52 +66,79 @@ func WithMaxProcessors(n int) Option {
 // This ensures that the total number of events returned never exceeds what can be buffered
 // and sent to the client, enforcing per-client backpressure and preventing overproduction of responses.
 func WithClientResponseLimit(n int) Option {
-	return func(r *Relay) { r.responseLimit = n }
+	return func(r *Relay) { r.settings.Sys.responseLimit = n }
 }
 
 // WithMaxClientPubkeys sets the maximum number of unique pubkeys with which a client can be authenticated at the same time.
 func WithMaxClientPubkeys(n int) Option {
-	return func(r *Relay) { r.maxClientPubkeys = n }
+	return func(r *Relay) { r.settings.Sys.maxClientPubkeys = n }
 }
 
 // WithoutMultiAuth limits to 1 the maximum number of unique pubkeys with which a client can be authenticated at the same time.
 // It's equivalent to WithMaxClientPubkeys(1).
 func WithoutMultiAuth() Option {
-	return func(r *Relay) { r.maxClientPubkeys = 1 }
+	return func(r *Relay) { r.settings.Sys.maxClientPubkeys = 1 }
 }
 
 // WithReadBufferSize sets the read buffer size (in bytes) for the underlying websocket connection upgrader.
 func WithReadBufferSize(s int) Option {
-	return func(r *Relay) { r.upgrader.ReadBufferSize = s }
+	return func(r *Relay) { r.settings.WS.upgrader.ReadBufferSize = s }
 }
 
 // WithWriteBufferSize sets the write buffer size (in bytes) for the underlying websocket connection upgrader.
 func WithWriteBufferSize(s int) Option {
-	return func(r *Relay) { r.upgrader.WriteBufferSize = s }
+	return func(r *Relay) { r.settings.WS.upgrader.WriteBufferSize = s }
 }
 
 // WithWriteWait sets the maximum duration to wait for a websocket write operation (including control messages)
 // to complete before timing out and closing the connection. Must be greater than 1s.
 func WithWriteWait(d time.Duration) Option {
-	return func(r *Relay) { r.writeWait = d }
+	return func(r *Relay) { r.settings.WS.writeWait = d }
 }
 
 // WithPongWait sets the read deadline for waiting for the next Pong message from the client
 // after a Ping is sent. Must be greater than the ping period.
 func WithPongWait(d time.Duration) Option {
-	return func(r *Relay) { r.pongWait = d }
+	return func(r *Relay) { r.settings.WS.pongWait = d }
 }
 
 // WithPingPeriod sets the interval at which the relay sends Ping messages to the client
 // to keep the connection alive. Must be less than the pong wait and greater than 1s.
 func WithPingPeriod(d time.Duration) Option {
-	return func(r *Relay) { r.pingPeriod = d }
+	return func(r *Relay) { r.settings.WS.pingPeriod = d }
 }
 
 // WithMaxMessageSize sets the maximum size (in bytes) of a single incoming websocket message
 // (e.g., a Nostr EVENT or REQ). Messages larger than this will be rejected. Must be > 512 bytes.
 func WithMaxMessageSize(s int64) Option {
-	return func(r *Relay) { r.maxMessageSize = s }
+	return func(r *Relay) { r.settings.WS.maxMessageSize = s }
+}
+
+// WithReadHeaderTimeout sets the maximum duration for reading the headers
+// of an HTTP request. Must be > 1s.
+func WithReadHeaderTimeout(d time.Duration) Option {
+	return func(r *Relay) { r.settings.HTTP.readHeaderTimeout = d }
+}
+
+// WithIdleTimeout sets the maximum duration an HTTP connection can be idle
+// before being closed. Must be > 10s.
+func WithIdleTimeout(d time.Duration) Option {
+	return func(r *Relay) { r.settings.HTTP.idleTimeout = d }
+}
+
+// settings holds the configurable parameters for the Relay.
+type settings struct {
+	Sys  systemSettings
+	HTTP httpSettings
+	WS   websocketSettings
+}
+
+func newSettings() settings {
+	return settings{
+		Sys:  newSystemSettings(),
+		HTTP: newHTTPSettings(),
+		WS:   newWebsocketSettings(),
+	}
 }
 
 type systemSettings struct {
@@ -161,6 +187,20 @@ func newRelayInfo() []byte {
 	return json
 }
 
+// httpSettings holds the configurable parameters for the default HTTP server, which is
+// used when calling [Relay.StartAndServe].
+type httpSettings struct {
+	readHeaderTimeout time.Duration
+	idleTimeout       time.Duration
+}
+
+func newHTTPSettings() httpSettings {
+	return httpSettings{
+		readHeaderTimeout: 5 * time.Second,
+		idleTimeout:       120 * time.Second,
+	}
+}
+
 type websocketSettings struct {
 	upgrader       ws.Upgrader
 	writeWait      time.Duration
@@ -186,19 +226,29 @@ func newWebsocketSettings() websocketSettings {
 // validate panics if structural parameters are invalid, and logs warnings
 // for non-fatal but potentially misconfigured settings (e.g., missing domain).
 func (r *Relay) validate() {
-	if r.pingPeriod < 1*time.Second {
+	// http
+	if r.settings.HTTP.readHeaderTimeout < 1*time.Second {
+		panic("http read header timeout must be greater than 1s to function reliably")
+	}
+	if r.settings.HTTP.idleTimeout < 10*time.Second {
+		panic("http idle timeout must be greater than 10s to function reliably")
+	}
+
+	// websocket
+	if r.settings.WS.pingPeriod < 1*time.Second {
 		panic("ping period must be greater than 1s to function reliably")
 	}
-	if r.pongWait <= r.pingPeriod {
+	if r.settings.WS.pongWait <= r.settings.WS.pingPeriod {
 		panic("pong wait must be greater than ping period to function reliably")
 	}
-	if r.writeWait < 1*time.Second {
+	if r.settings.WS.writeWait < 1*time.Second {
 		panic("write wait must be greater than 1s to function reliably")
 	}
-	if r.maxMessageSize < 512 {
+	if r.settings.WS.maxMessageSize < 512 {
 		panic("max message size must be greater than 512 bytes to accept nostr events")
 	}
 
+	// processor
 	if r.processor.maxWorkers < 1 {
 		panic("max processors must be greater than 1 to correctly process from the queue")
 	}
@@ -206,13 +256,14 @@ func (r *Relay) validate() {
 		panic("processor queue must have a capacity greater than 1 to correctly handle client requests")
 	}
 
-	if r.responseLimit < 1 {
+	// system
+	if r.settings.Sys.responseLimit < 1 {
 		panic("client response limit must be greater than 1 to allow responses to be sent")
 	}
-	if r.maxClientPubkeys < 1 {
+	if r.settings.Sys.maxClientPubkeys < 1 {
 		panic("max authed pubkeys per client must be greater than 1 for NIP-42 to work")
 	}
-	if r.domain == "" {
+	if r.settings.Sys.domain == "" {
 		r.log.Warn("you must set the relay's domain to validate NIP-42 auth")
 	}
 }

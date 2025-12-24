@@ -131,9 +131,9 @@ func (c *client) read() {
 		c.relay.wg.Done()
 	}()
 
-	c.conn.SetReadLimit(c.relay.maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.pongWait)); return nil })
+	c.conn.SetReadLimit(c.relay.settings.WS.maxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(c.relay.settings.WS.pongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.relay.settings.WS.pongWait)); return nil })
 
 	for {
 		if c.invalidMessages >= 5 {
@@ -250,7 +250,7 @@ func (c *client) send(r response) {
 // The client writes to the websocket whatever [response] it receives in its channel.
 // Periodically it writes [websocket.PingMessage]s.
 func (c *client) write() {
-	ticker := time.NewTicker(c.relay.pingPeriod)
+	ticker := time.NewTicker(c.relay.settings.WS.pingPeriod)
 	defer func() {
 		c.conn.Close()
 		ticker.Stop()
@@ -366,7 +366,7 @@ func (c *client) handleAuth(request authRequest) *requestError {
 }
 
 func (c *client) writeMessage(b []byte) error {
-	c.conn.SetWriteDeadline(time.Now().Add(c.relay.writeWait))
+	c.conn.SetWriteDeadline(time.Now().Add(c.relay.settings.WS.writeWait))
 	return c.conn.WriteMessage(ws.TextMessage, b)
 }
 
@@ -374,7 +374,7 @@ func (c *client) writeCloseNormal() error {
 	return c.conn.WriteControl(
 		ws.CloseMessage,
 		ws.FormatCloseMessage(ws.CloseNormalClosure, ""),
-		time.Now().Add(c.relay.writeWait),
+		time.Now().Add(c.relay.settings.WS.writeWait),
 	)
 }
 
@@ -382,7 +382,7 @@ func (c *client) writeCloseGoingAway() error {
 	return c.conn.WriteControl(
 		ws.CloseMessage,
 		ws.FormatCloseMessage(ws.CloseGoingAway, ErrShuttingDown.Error()),
-		time.Now().Add(c.relay.writeWait),
+		time.Now().Add(c.relay.settings.WS.writeWait),
 	)
 }
 
@@ -390,7 +390,7 @@ func (c *client) writeCloseTryLater() error {
 	return c.conn.WriteControl(
 		ws.CloseMessage,
 		ws.FormatCloseMessage(ws.CloseTryAgainLater, ErrOverloaded.Error()),
-		time.Now().Add(c.relay.writeWait),
+		time.Now().Add(c.relay.settings.WS.writeWait),
 	)
 }
 
@@ -398,6 +398,6 @@ func (c *client) writePing() error {
 	return c.conn.WriteControl(
 		ws.PingMessage,
 		nil,
-		time.Now().Add(c.relay.writeWait),
+		time.Now().Add(c.relay.settings.WS.writeWait),
 	)
 }
