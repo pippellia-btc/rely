@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"math/rand/v2"
+	"os"
 	"os/signal"
-	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -22,7 +22,7 @@ var (
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
 	store = make([]*nostr.Event, 0, 1000)

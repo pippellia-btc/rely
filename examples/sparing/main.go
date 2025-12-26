@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
 	"os/signal"
-	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -19,7 +19,7 @@ to apply simple backpressure.
 */
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
 	relay := rely.NewRelay(

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -22,7 +22,7 @@ StartAndServe method to implement a custom, context-aware graceful shutdown.
 */
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
 	// create your own custom relay, and start it without serving it

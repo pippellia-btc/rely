@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/pippellia-btc/rely"
 )
@@ -21,7 +21,7 @@ http request before upgrading to websocket.
 var counter = make(map[string]*atomic.Int32)
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
 	relay := rely.NewRelay()

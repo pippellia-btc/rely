@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 	"math/rand/v2"
+	"os"
 	"os/signal"
-	"syscall"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
@@ -17,7 +17,7 @@ in the relay.On.Count hook.
 */
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
 	relay := rely.NewRelay()

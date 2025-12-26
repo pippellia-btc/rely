@@ -5,8 +5,8 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/nbd-wtf/go-nostr"
@@ -36,7 +36,7 @@ var cache *RankCache
 var limiter *Limiter
 
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
 	cache = NewRankCache(ctx)
