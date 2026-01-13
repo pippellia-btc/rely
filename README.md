@@ -194,7 +194,7 @@ This section lists project and repositories that are using rely in production.
 
 Rely doesn't come with a default database, you have to provide your own.  
 Fortunately, the community has developed several ready-to-use database implementations:
-- [nostr.sqlite](https://github.com/vertex-lab/nostr-sqlite): a performant and highly customizable SQLite store for Nostr events.
+- [nostr-sqlite](https://github.com/vertex-lab/nostr-sqlite): a performant and highly customizable SQLite store for Nostr events.
 - [eventstore](https://pkg.go.dev/fiatjaf.com/nostr@v0.0.0-20251125175014-6367bd71d42a/eventstore): A collection of reusable database connectors, wrappers and schemas that store Nostr events
 
 ## FAQs
