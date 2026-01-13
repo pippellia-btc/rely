@@ -58,13 +58,13 @@ Below is a silly example that illustrates rely's flexibility.
 ```golang
 func main() {
 	// ...
-	relay.Reject.Connection = append(relay.Reject.Connection, BadIP)
-	relay.Reject.Event = append(relay.Reject.Event, RejectSatan)
+	relay.Reject.Connection.Append(BadIP)
+	relay.Reject.Event.Append(RejectSatan)
 	relay.On.Event = Save	// your custom DB save
 }
 
 func BadIP(s Stats, req *http.Request) error {
-	if slices.Contains(blacklist, IP(req)) {
+	if slices.Contains(blacklist, rely.GetIP(req).Group()) {
 		return fmt.Errorf("you shall not pass!")
 	}
 	return nil
@@ -72,7 +72,7 @@ func BadIP(s Stats, req *http.Request) error {
 
 func RejectSatan(client Client, event *nostr.Event) error {
 	if event.Kind == 666 {
-		blacklist = append(blacklist, client.IP())
+		blacklist = append(blacklist, client.IP().Group())
 		client.Disconnect()
 		return errors.New("not today, Satan. Not today")
 	}
