@@ -145,16 +145,6 @@ type WhenHooks struct {
 	// GreedyClient is invoked when a client’s response buffer becomes full,
 	// typically because it sends new REQs before reading responses from earlier ones.
 	// This hook is commonly used for logging misbehavior or disconnecting the client.
-	//
-	// Warning:
-	// Calling methods that lead to sending a response (e.g., [Client.SendAuth]
-	// or [Client.SendNotice]) from within this hook is highly discouraged.
-	//
-	// If a send method is called here, and the response buffer remains full,
-	// it will trigger this hook again, leading to uncontrolled recursion.
-	//
-	// To prevent crashes, any logic that calls a send method must include a
-	// terminal condition (e.g., a counter or a flag) to guarantee the recursion will stop.
 	GreedyClient func(Client)
 }
 

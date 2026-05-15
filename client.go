@@ -249,7 +249,23 @@ func (c *client) send(r response) {
 	case c.responses <- r:
 	default:
 		c.droppedResponses.Add(1)
-		c.relay.When.GreedyClient(c)
+		// Note: client.send MUST be non-blocking to guarantee a correct functioning of the relay,
+		// since it is called by all the foundational components (processor, dispatcher...).
+		//
+		// Previously we called the GreedyClient hook here, which could in fact be a blocking operation,
+		// and that caused several issues:
+		//
+		//  1. If GreedyClient called client.send (for example via client.SendNotice), the relay would
+		//     experience uncontrolled recursion (client.send --> GreedyClient --> client.send --> ...)
+		//
+		//  2. If GreedyClient called client.Disconnect, the relay under load could experience
+		//     a multi step deadlock:
+		//     - the dispatcher's updates channel is full
+		//     - an event is received and the dispatcher broadcasts
+		// 	   - the client it broadcasts to has a full buffer
+		//     - GreedyClient is called, which invokes client.Disconnect
+		//     - client.Disconnect calls client.CloseAllSubs, which in turn tries to send
+		// 		an unindexing update to the dispatcher's updates channel (deadlock)
 	}
 }
 
@@ -278,6 +294,12 @@ func (c *client) write() {
 			return
 
 		case response := <-c.responses:
+			if len(c.responses)+1 >= cap(c.responses) {
+				// before this response was dequeued, the channel was full,
+				// which happens when production (client.send) outpaces consumption.
+				c.relay.When.GreedyClient(c)
+			}
+
 			bytes, err := response.MarshalJSON()
 			if err != nil {
 				c.relay.log.Error("failed to marshal response", "response", response, "error", err)
