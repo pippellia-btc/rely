@@ -352,11 +352,13 @@ func (c *client) handleReq(req reqRequest) *requestError {
 	req.ctx, sub.cancel = context.WithCancel(context.Background())
 	req.client = c
 
-	if err := c.relay.tryProcess(req); err != nil {
+	if err := c.tryOpen(sub); err != nil {
 		return err
 	}
-
-	c.Open(sub)
+	if err := c.relay.tryProcess(req); err != nil {
+		c.CloseSub(sub.id)
+		return err
+	}
 	return nil
 }
 

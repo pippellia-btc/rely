@@ -86,7 +86,7 @@ func (r *Relay) Broadcast(e *nostr.Event) error {
 }
 
 // tryProcess tries to add the request to the processing queue of the relay.
-// If it's full, it returns [ErrOverloaded] inside the [requestError]
+// If returns an error if the queue is full or the relay is shutting down.
 func (r *Relay) tryProcess(rq request) *requestError {
 	select {
 	case r.processor.queue <- rq:
@@ -99,13 +99,17 @@ func (r *Relay) tryProcess(rq request) *requestError {
 	}
 }
 
-// Index sends the indexing update of subscription to the dispatcher.
-func (r *Relay) index(s subscription) {
+// tryIndex sends the indexing update of subscription to the dispatcher.
+// If returns an error if the queue is full or the relay is shutting down.
+func (r *Relay) tryIndex(s subscription) *requestError {
 	select {
 	case r.dispatcher.updates <- update{operation: index, sub: s}:
-		return
+		return nil
 	case <-r.done:
-		return
+		return &requestError{ID: s.id, Err: ErrShuttingDown}
+	default:
+		r.log.Warn("failed to index subscription", "uid", s.uid, "error", ErrOverloaded)
+		return &requestError{ID: s.id, Err: ErrOverloaded}
 	}
 }
 

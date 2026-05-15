@@ -53,22 +53,31 @@ func (s subscription) Age() time.Duration          { return time.Since(s.created
 func (s subscription) Matches(e *nostr.Event) bool { return s.filters.Match(e) }
 func (s subscription) Close(reason string)         { s.client.CloseSubWithReason(s.id, reason) }
 
-// Open or overwrite a subscription.
-func (c *client) Open(s subscription) {
+// tryOpen tried to open and index a subscription.
+func (c *client) tryOpen(s subscription) *requestError {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	old, exists := c.subs[s.id]
 	if exists {
+		// overwriting a subscriptions means closing the old, even in the case
+		// the new subscription fails to index.
 		old.cancel()
-		c.subs[s.id] = s
 		c.relay.unindex(old)
-		c.relay.index(s)
-		return
+
+		if err := c.relay.tryIndex(s); err != nil {
+			delete(c.subs, s.id)
+			return err
+		}
+		c.subs[s.id] = s
+		return nil
 	}
 
+	if err := c.relay.tryIndex(s); err != nil {
+		return err
+	}
 	c.subs[s.id] = s
-	c.relay.index(s)
+	return nil
 }
 
 // CloseSub closes a subscription by its id, if present.
