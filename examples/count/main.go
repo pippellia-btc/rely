@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"math/rand/v2"
 	"os"
 	"os/signal"
 
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/pippellia-btc/rely"
-	"golang.org/x/exp/slog"
 )
 
 /*
