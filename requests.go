@@ -12,7 +12,7 @@ import (
 
 var (
 	ErrGeneric         = errors.New(`the message must be a JSON array`)
-	ErrUnsupportedType = errors.New(`the message type must be one between 'EVENT', 'REQ', 'CLOSE', 'COUNT' and 'AUTH'`)
+	ErrUnsupportedType = errors.New(`the message type must be one between 'EVENT', 'REQ', 'CLOSE', 'COUNT', 'AUTH', 'NEG-OPEN', 'NEG-MSG' and 'NEG-CLOSE'`)
 
 	ErrInvalidEvent    = errors.New(`an EVENT request must follow this format: ['EVENT', {event_JSON}]`)
 	ErrInvalidEventID  = errors.New(`invalid event ID`)

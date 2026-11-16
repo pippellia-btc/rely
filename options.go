@@ -155,18 +155,20 @@ func WithShutdownTimeout(d time.Duration) Option {
 
 // settings holds the configurable parameters for the Relay.
 type settings struct {
-	Sys  systemSettings
-	Auth auth.Config
-	HTTP httpSettings
-	WS   websocketSettings
+	Negentropy NegentropyConfig
+	Sys        systemSettings
+	Auth       auth.Config
+	HTTP       httpSettings
+	WS         websocketSettings
 }
 
 func newSettings() settings {
 	return settings{
-		Sys:  newSystemSettings(),
-		Auth: auth.NewConfig(),
-		HTTP: newHTTPSettings(),
-		WS:   newWebsocketSettings(),
+		Negentropy: DefaultNegentropyConfig(),
+		Sys:        newSystemSettings(),
+		Auth:       auth.NewConfig(),
+		HTTP:       newHTTPSettings(),
+		WS:         newWebsocketSettings(),
 	}
 }
 
@@ -248,6 +250,8 @@ func newWebsocketSettings() websocketSettings {
 // validate panics if structural parameters are invalid, and logs warnings
 // for non-fatal but potentially misconfigured settings (e.g., missing domain).
 func (r *Relay) validate() {
+	r.settings.Negentropy.validate()
+
 	// system
 	if r.settings.Sys.responseLimit < 1 {
 		panic("client response limit must be greater than 1 to allow responses to be sent")

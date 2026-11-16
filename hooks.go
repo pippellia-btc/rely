@@ -59,6 +59,11 @@ type RejectHooks struct {
 	// Count is invoked before processing a NIP-45 COUNT request.
 	// Returning a non-nil error rejects the request.
 	Count slice[func(c Client, id string, filters nostr.Filters) error]
+
+	// Negentropy is invoked before opening a NIP-77 reconciliation session.
+	// Use it to enforce read access and query policies, including authentication.
+	// Req hooks are not automatically applied to reconciliation requests.
+	Negentropy slice[func(c Client, id string, filter nostr.Filter) error]
 }
 
 func DefaultRejectHooks() RejectHooks {
@@ -116,6 +121,15 @@ type OnHooks struct {
 	// containing one ore more filters.
 	// This hook is optional (= nil). If unset, COUNT requests are rejected with [ErrUnsupportedNIP45].
 	Count func(c Client, id string, filters nostr.Filters) (count int64, approx bool, err error)
+
+	// Negentropy returns a snapshot of unique event IDs and timestamps matching
+	// one NIP-77 filter and visible to this client. It must return the complete
+	// selected set or an error, never silently truncate to a database query cap.
+	// The context is canceled on close, replacement, disconnect, or timeout.
+	// Implementations should bound database work using the configured MaxItems
+	// and honor cancellation. The returned slice must not be mutated afterward.
+	// If nil, NIP-77 is disabled. Event transfer still uses Req and Event hooks.
+	Negentropy func(ctx context.Context, c Client, id string, filter nostr.Filter) ([]NegentropyItem, error)
 }
 
 // EventResult is returned from [OnHooks.Event] to instruct the relay on
