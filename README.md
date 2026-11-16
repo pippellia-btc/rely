@@ -197,6 +197,66 @@ Fortunately, the community has developed several ready-to-use database implement
 - [nostr-sqlite](https://github.com/vertex-lab/nostr-sqlite): a performant and highly customizable SQLite store for Nostr events.
 - [eventstore](https://pkg.go.dev/fiatjaf.com/nostr@v0.0.0-20251125175014-6367bd71d42a/eventstore): A collection of reusable database connectors, wrappers and schemas that store Nostr events
 
+## NIP-77 synchronization
+
+Rely can respond to [NIP-77 Negentropy](https://github.com/nostr-protocol/nips/blob/master/77.md)
+requests from clients and other relays. Enable it by setting `On.Negentropy`.
+The hook supplies a snapshot of event IDs and `created_at` timestamps; Rely
+handles the reconciliation protocol and session lifecycle.
+
+```go
+config := rely.DefaultNegentropyConfig()
+config.MaxItems = 50_000
+
+relay := rely.NewRelay(rely.WithNegentropyConfig(config))
+relay.On.Negentropy = func(
+    ctx context.Context, c rely.Client, id string, filter nostr.Filter,
+) ([]rely.NegentropyItem, error) {
+    // Implement this query in your storage layer. Fetch only id and created_at,
+    // applying the filter and this client's read permissions. Detect oversized
+    // results (for example, by reading up to config.MaxItems+1 records).
+    return store.QuerySyncMetadata(ctx, filter, config.MaxItems)
+}
+```
+
+`store.QuerySyncMetadata` above represents your own database adapter, returning
+`[]rely.NegentropyItem{{ID: event.ID, Timestamp: event.CreatedAt}, ...}`.
+It must honor cancellation and return the **complete selected set or an error**.
+Apply the requested filter, including an explicit `limit`, consistently with
+NIP-01. Never silently truncate the set to an implicit database limit or to
+`MaxItems`: return an error such as `blocked: too many records` instead.
+Rely validates and copies the metadata into a sorted, session-local snapshot.
+
+Use `Reject.Negentropy` for authentication, filter policy, and rate limiting.
+`Reject.Req` is not automatically applied: downstream relays must ensure the
+snapshot only exposes IDs the requesting client is permitted to read.
+Hooks can return NIP-01 prefixed errors such as `auth-required: authenticate first`;
+unprefixed errors receive an `error:` prefix.
+
+Defaults are four sessions per connection, 100,000 records per snapshot,
+a one-minute maximum session lifetime (including database loading), and 4 KiB
+binary response frames. Incoming binary payloads are capped at 64 KiB, in
+addition to the WebSocket message limit. Hex encoding doubles payload size.
+`WithNegentropyConfig` adjusts the session, record, lifetime, and response limits.
+The ordinary processor pool bounds concurrent snapshot queries and reconciliation.
+
+Sessions use a separate ID namespace from `REQ`. They are released on
+`NEG-CLOSE`, replacement, error, timeout, disconnection, or relay shutdown.
+Messages within a session alternate request/response; sending another message
+while processing closes that session. If the output queue fills, the connection
+is closed rather than silently dropping a reconciliation response.
+
+NIP-77 discovers differences; clients download missing events through `REQ`
+and upload events through `EVENT`, using your existing hooks. Rely does not
+initiate outbound synchronization. Add `77` to `SupportedNIPs` in your
+`WithInfo` document when enabling the hook; the default document does not
+advertise optional support.
+
+The implementation uses the existing pinned `go-nostr` Negentropy V1 engine.
+Its encoding limitations mean timestamps must be nonnegative and less than
+`2^56 - 1`, and snapshots containing equal-timestamp IDs sharing their first
+17 bytes are rejected rather than producing ambiguous bounds.
+
 ## FAQs
 
 <details>
@@ -209,7 +269,8 @@ You can always loop through the filters and make a query for each.
 
 <details>
 <summary>When Negentropy?</summary>
-It's in the roadmap.
+NIP-77 responder support is available through the optional `On.Negentropy` hook.
+See [NIP-77 synchronization](#nip-77-synchronization).
 </details>
 
 <details>

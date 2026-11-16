@@ -83,8 +83,9 @@ type Client interface {
 // - read errors in the [client.read] (automatic)
 // - the call to [client.Disconnect] (automatic or manual)
 type client struct {
-	mu   sync.Mutex
-	subs map[string]subscription
+	mu          sync.Mutex
+	subs        map[string]subscription
+	negSessions map[string]*negSession // guarded by mu; separate from REQ subscriptions
 
 	auth        *auth.State
 	ip          IP
@@ -119,6 +120,7 @@ func (c *client) SendNotice(msg string)  { c.send(noticeResponse{Message: msg}) 
 func (c *client) Disconnect() {
 	if c.isUnregistering.CompareAndSwap(false, true) {
 		close(c.done)
+		c.closeNegSessions()
 		c.relay.unregister <- c
 		c.CloseAllSubs()
 	}
@@ -170,6 +172,9 @@ func (c *client) read() {
 		}
 
 		switch label {
+		case "NEG-OPEN", "NEG-MSG", "NEG-CLOSE":
+			c.handleNegentropy(label, decoder)
+
 		case "EVENT":
 			event, err := parseEvent(decoder)
 			if err != nil {

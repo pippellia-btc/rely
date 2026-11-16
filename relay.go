@@ -249,6 +249,7 @@ drainRegister:
 	for client := range r.clients {
 		if client.isUnregistering.CompareAndSwap(false, true) {
 			close(client.done)
+			client.closeNegSessions()
 			r.stats.clients.Add(-1)
 		}
 	}

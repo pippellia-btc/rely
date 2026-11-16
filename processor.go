@@ -56,6 +56,9 @@ func (p *processor) Run() {
 // Process a single request based on its type, by applying the user defined [Hooks].
 func (p *processor) Process(r request) {
 	switch r := r.(type) {
+	case negRequest:
+		p.processNegentropy(r)
+
 	case eventRequest:
 		res := p.relay.On.Event(r.client, r.Event)
 		r.client.send(okResponse{ID: r.Event.ID, Accepted: !res.failed, Reason: res.reason})
